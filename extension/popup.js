@@ -10,8 +10,147 @@ const scrollBottomBtn = document.getElementById("scrollBottomBtn");
 const headerEl = document.querySelector("header");
 const inputRowEl = document.querySelector(".input-row");
 
+// GitHub Mode Elements
+const githubModeBtnEl = document.getElementById("githubModeBtn");
+const githubMenuEl = document.getElementById("githubMenu");
+const closeGithubMenuBtnEl = document.getElementById("closeGithubMenuBtn");
+const githubActionsGridEl = document.getElementById("githubActionsGrid");
+
 document.getElementById("optionsBtn").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
+});
+
+const GITHUB_ACTIONS = [
+  { id: "architecture", label: "Architecture", icon: "🏛️" },
+  { id: "folder-structure", label: "Folder structure", icon: "📁" },
+  { id: "installation", label: "Installation", icon: "⚙️" },
+  { id: "dependencies", label: "Dependencies", icon: "📦" },
+  { id: "explain-bug", label: "Explain bug", icon: "🐛", requires: "issue" },
+  { id: "generate-readme", label: "Generate README", icon: "📝" },
+  { id: "generate-docs", label: "Generate docs", icon: "📄" },
+  { id: "explain-function", label: "Explain function", icon: "🔎", requires: "blob" },
+];
+
+const RESERVED_OWNERS = new Set([
+  "marketplace", "notifications", "settings", "explore", "topics", "trending",
+  "sponsors", "codespaces", "dashboard", "new", "orgs", "organizations",
+  "about", "pricing", "features", "security", "resources", "customer-stories",
+  "site", "apps", "collections", "events", "account", "login", "join",
+  "logout", "search", "gist", "gists", "readme", "watching", "stars",
+  "issues", "pulls", "notifications",
+]);
+
+function parseGitHubUrl(urlStr) {
+  if (!urlStr) return null;
+  try {
+    const url = new URL(urlStr);
+    if (url.hostname !== "github.com" && url.hostname !== "www.github.com") return null;
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length < 2) return null;
+
+    const [owner, repo, ...rest] = segments;
+    if (RESERVED_OWNERS.has(owner.toLowerCase())) return null;
+
+    const ctx = { owner, repo, ref: null, path: null, issueNumber: null, pageType: "repo" };
+
+    if (rest[0] === "blob" && rest.length > 2) {
+      ctx.pageType = "blob";
+      ctx.ref = rest[1];
+      ctx.path = rest.slice(2).join("/");
+    } else if (rest[0] === "tree" && rest.length > 1) {
+      ctx.ref = rest[1];
+    } else if (rest[0] === "issues" && /^\d+$/.test(rest[1] || "")) {
+      ctx.pageType = "issue";
+      ctx.issueNumber = Number(rest[1]);
+    }
+
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+
+async function getTabSelection(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.getSelection()?.toString().trim() || "",
+    });
+    return result?.result || "";
+  } catch {
+    return "";
+  }
+}
+
+function renderGithubMenuContent() {
+  const ctx = parseGitHubUrl(activeTabUrl);
+  if (!ctx) return;
+
+  githubActionsGridEl.innerHTML = "";
+
+  GITHUB_ACTIONS.forEach((action) => {
+    const needsBlob = action.requires === "blob" && ctx.pageType !== "blob";
+    const needsIssue = action.requires === "issue" && ctx.pageType !== "issue";
+    const disabled = needsBlob || needsIssue;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "github-action-card";
+    btn.disabled = disabled;
+    if (disabled) {
+      btn.title = needsBlob ? "Open a file to use this" : "Open an issue to use this";
+    }
+
+    btn.innerHTML = `<span class="action-icon">${action.icon}</span><span>${action.label}</span>`;
+    
+    btn.addEventListener("click", async () => {
+      btn.classList.add("loading");
+      btn.disabled = true;
+
+      let selection = null;
+      if (action.id === "explain-function") {
+        selection = await getTabSelection(activeTabId);
+      }
+
+      chrome.runtime.sendMessage({
+        type: "GITHUB_MODE_ACTION",
+        action: action.id,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        ref: ctx.ref,
+        path: ctx.path,
+        issueNumber: ctx.issueNumber,
+        selection: selection,
+        tabId: activeTabId
+      }, (response) => {
+        btn.classList.remove("loading");
+        btn.disabled = false;
+        
+        if (response && response.ok) {
+          githubMenuEl.style.display = "none";
+          sendQuestion(response.question, response.context);
+        } else {
+          const errorMsg = response?.error || "Error executing GitHub action.";
+          alert(errorMsg);
+        }
+      });
+    });
+
+    githubActionsGridEl.appendChild(btn);
+  });
+}
+
+githubModeBtnEl.addEventListener("click", () => {
+  if (githubMenuEl.style.display === "none") {
+    renderGithubMenuContent();
+    githubMenuEl.style.display = "flex";
+  } else {
+    githubMenuEl.style.display = "none";
+  }
+});
+
+closeGithubMenuBtnEl.addEventListener("click", () => {
+  githubMenuEl.style.display = "none";
 });
 
 // Must match background.js's scheme exactly — conversation history is
@@ -238,6 +377,18 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
   updateEmptyState();
   headerEl.classList.remove("scrolled");
   updateScrollBottomBtn();
+
+  // Hide GitHub menu overlay on tab load
+  githubMenuEl.style.display = "none";
+
+  // Detect GitHub page and toggle button visibility
+  const gitContext = parseGitHubUrl(tabUrl);
+  if (gitContext) {
+    githubModeBtnEl.style.display = "inline-flex";
+  } else {
+    githubModeBtnEl.style.display = "none";
+  }
+
   if (tabId) {
     if (tabUrl) await loadHistory(tabUrl);
     await checkPendingSelection(tabId);

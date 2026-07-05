@@ -424,17 +424,24 @@ async function buildGithubAction({ action, owner, repo, ref, path, issueNumber, 
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "GITHUB_MODE_ACTION") return;
-  const tabId = sender.tab?.id;
-  if (!tabId) return;
+  const tabId = sender.tab?.id || message.tabId;
+  if (!tabId) {
+    sendResponse({ ok: false, error: "No active tab detected." });
+    return;
+  }
 
   (async () => {
     try {
       const { question, context } = await buildGithubAction(message);
-      await chrome.storage.session.set({
-        [`pendingGithubAction_${tabId}`]: { question, context },
-      });
-      await surfaceChatUi(tabId);
-      sendResponse({ ok: true });
+      if (sender.tab?.id) {
+        await chrome.storage.session.set({
+          [`pendingGithubAction_${tabId}`]: { question, context },
+        });
+        await surfaceChatUi(tabId);
+        sendResponse({ ok: true });
+      } else {
+        sendResponse({ ok: true, question, context });
+      }
     } catch (err) {
       sendResponse({ ok: false, error: err.message || String(err) });
     }

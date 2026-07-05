@@ -787,3 +787,161 @@ header.scrolled {
   color: var(--error-text);
   font-weight: 600;
 }
+
+/* ---------- GitHub Menu Overlay ---------- */
+
+.github-menu {
+  position: absolute;
+  top: 49px; /* Right under the header border */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  animation: slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  border-top: 1px solid var(--border);
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.github-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.github-menu-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.github-menu-title .title-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text);
+}
+
+.github-menu-header .close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.github-menu-header .close-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.github-menu-header .close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.github-menu-content {
+  padding: 14px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.menu-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 0;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.github-actions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.github-action-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.github-action-card:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  transform: translateY(-1px);
+}
+
+.github-action-card:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.github-action-card:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.github-action-card .action-icon {
+  font-size: 14px;
+}
+
+.github-action-card.loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+.github-action-card.loading .action-icon,
+.github-action-card.loading span {
+  visibility: hidden;
+}
+
+.github-action-card.loading::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  animation: spinner 0.7s linear infinite;
+}
+
