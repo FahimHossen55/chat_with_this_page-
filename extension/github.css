@@ -1,0 +1,199 @@
+/* Scoped to #cwtp-github-rail / .cwtp-toast only — injected onto github.com
+   itself, so these rules must never leak onto or be overridden by GitHub's
+   own styles. */
+
+#cwtp-github-rail {
+  --cwtp-bg: #ffffff;
+  --cwtp-border: #e5e7eb;
+  --cwtp-text: #16181d;
+  --cwtp-text-muted: #6b7280;
+  --cwtp-primary: #2563eb;
+  --cwtp-shadow: 0 10px 30px rgba(16, 24, 40, 0.18);
+  --cwtp-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 2147483000;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  animation: cwtp-fade-in 0.25s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  #cwtp-github-rail {
+    --cwtp-bg: #1a1d24;
+    --cwtp-border: #2b2f38;
+    --cwtp-text: #edeef0;
+    --cwtp-text-muted: #9aa0ac;
+    --cwtp-primary: #3b82f6;
+    --cwtp-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@keyframes cwtp-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#cwtp-github-rail,
+#cwtp-github-rail * {
+  box-sizing: border-box;
+  line-height: 1.3;
+}
+
+.cwtp-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--cwtp-border);
+  background: var(--cwtp-bg);
+  color: var(--cwtp-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--cwtp-shadow);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  white-space: nowrap;
+}
+
+.cwtp-toggle-btn:hover {
+  border-color: var(--cwtp-primary);
+  color: var(--cwtp-primary);
+}
+
+.cwtp-toggle-btn:active {
+  transform: scale(0.97);
+}
+
+.cwtp-toggle-icon {
+  font-size: 14px;
+}
+
+.cwtp-toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cwtp-text-muted);
+  flex-shrink: 0;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* "Enabled" state: GitHub Mode is toggled on and the dropdown is showing. */
+#cwtp-github-rail.open .cwtp-toggle-btn {
+  background: var(--cwtp-gradient);
+  color: #fff;
+  border-color: transparent;
+}
+
+#cwtp-github-rail.open .cwtp-toggle-dot {
+  background: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.3);
+}
+
+.cwtp-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 230px;
+  background: var(--cwtp-bg);
+  border: 1px solid var(--cwtp-border);
+  border-radius: 12px;
+  box-shadow: var(--cwtp-shadow);
+  padding: 8px;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+  transform-origin: top right;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+#cwtp-github-rail.open .cwtp-dropdown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.cwtp-rail-heading {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cwtp-text-muted);
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--cwtp-border);
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
+.cwtp-rail-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--cwtp-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.cwtp-rail-btn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--cwtp-primary);
+}
+
+.cwtp-rail-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.cwtp-rail-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cwtp-rail-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.cwtp-rail-btn.cwtp-loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.cwtp-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  max-width: 280px;
+  background: #1a1d24;
+  color: #edeef0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 10px 14px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  z-index: 2147483000;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.cwtp-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}

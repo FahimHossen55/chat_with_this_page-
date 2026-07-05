@@ -71,7 +71,7 @@ async function extractPageContent(tabId) {
   return chrome.tabs.sendMessage(tabId, { type: "EXTRACT_PAGE_TEXT" });
 }
 
-async function streamChat(port, tabId, question) {
+async function streamChat(port, tabId, question, extraContext) {
   // Page extraction must resolve first since the history lookup below is
   // keyed by the page's URL, which we only learn from this call.
   const [page, backendUrl, model] = await Promise.all([
@@ -84,7 +84,13 @@ async function streamChat(port, tabId, question) {
   const systemPrompt =
     `You are a helpful assistant answering questions about a webpage.\n` +
     `Page title: ${page.title}\nPage URL: ${page.url}\n\n` +
-    `Page content:\n${page.content}${page.truncated ? "\n[...page content truncated...]" : ""}`;
+    `Page content:\n${page.content}${page.truncated ? "\n[...page content truncated...]" : ""}` +
+    // GitHub Mode actions (see GITHUB_MODE_ACTION below) attach richer,
+    // API-fetched repo data here — the plain page text above rarely covers
+    // things like the full file tree or a manifest file's contents.
+    (extraContext
+      ? `\n\nAdditional context fetched from the GitHub API for this request:\n${extraContext}`
+      : "");
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -143,10 +149,298 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener((message) => {
     if (message?.type !== "ASK") return;
-    streamChat(port, message.tabId, message.question).catch((err) => {
+    streamChat(port, message.tabId, message.question, message.context).catch((err) => {
       port.postMessage({ type: "ERROR", message: err.message || String(err) });
     });
   });
+});
+
+// ---------------------------------------------------------------------
+// GitHub Mode: github.js (a persistent content script, unlike content.js)
+// renders a floating action rail on github.com repo pages. Each button
+// click lands here as a GITHUB_MODE_ACTION message; we fetch whatever
+// GitHub API data that action needs, turn it into a canned question +
+// context blob, and hand it to the chat UI via the same one-shot
+// chrome.storage.session pending-payload pattern used for the context-menu
+// actions below.
+// ---------------------------------------------------------------------
+
+const GITHUB_API = "https://api.github.com";
+const GITHUB_CONTEXT_MAX_CHARS = 9000;
+
+const MANIFEST_FILENAMES = [
+  "package.json",
+  "requirements.txt",
+  "pyproject.toml",
+  "Pipfile",
+  "go.mod",
+  "Cargo.toml",
+  "Gemfile",
+  "pom.xml",
+  "build.gradle",
+  "composer.json",
+];
+
+function truncateText(text, max = GITHUB_CONTEXT_MAX_CHARS) {
+  if (!text) return { text: "", truncated: false };
+  if (text.length <= max) return { text, truncated: false };
+  return { text: text.slice(0, max), truncated: true };
+}
+
+async function githubApiFetch(path) {
+  const res = await fetch(`${GITHUB_API}${path}`, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) {
+    throw new Error(
+      res.status === 403
+        ? "GitHub API rate limit reached — try again in a bit."
+        : `GitHub API error (${res.status}) for ${path}`
+    );
+  }
+  return res.json();
+}
+
+async function fetchDefaultBranch(owner, repo) {
+  const info = await githubApiFetch(`/repos/${owner}/${repo}`);
+  return info.default_branch;
+}
+
+async function fetchRepoTree(owner, repo, ref) {
+  const branch = ref || (await fetchDefaultBranch(owner, repo));
+  const data = await githubApiFetch(
+    `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+  );
+  const paths = (data.tree || [])
+    .filter((entry) => entry.type === "blob" || entry.type === "tree")
+    .map((entry) => (entry.type === "tree" ? `${entry.path}/` : entry.path));
+  return { paths, truncatedByApi: !!data.truncated, branch };
+}
+
+async function fetchRawFile(owner, repo, ref, path) {
+  const res = await fetch(
+    `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`
+  );
+  return res.ok ? res.text() : null;
+}
+
+async function fetchReadme(owner, repo, ref) {
+  try {
+    const meta = await githubApiFetch(
+      `/repos/${owner}/${repo}/readme${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`
+    );
+    if (!meta.download_url) return null;
+    const res = await fetch(meta.download_url);
+    return res.ok ? res.text() : null;
+  } catch {
+    return null; // no README, or the API call failed — proceed without it
+  }
+}
+
+function findManifestPaths(treePaths) {
+  return treePaths
+    .filter((p) => MANIFEST_FILENAMES.includes(p.split("/").pop()))
+    .sort((a, b) => a.split("/").length - b.split("/").length); // shallowest first
+}
+
+async function fetchIssue(owner, repo, number) {
+  const issue = await githubApiFetch(`/repos/${owner}/${repo}/issues/${number}`);
+  let comments = [];
+  try {
+    comments = await githubApiFetch(
+      `/repos/${owner}/${repo}/issues/${number}/comments?per_page=10`
+    );
+  } catch {
+    // comments are a nice-to-have; the issue body alone is still useful
+  }
+  return { issue, comments };
+}
+
+async function buildGithubAction({ action, owner, repo, ref, path, issueNumber, selection }) {
+  switch (action) {
+    case "architecture": {
+      const [{ paths }, readme] = await Promise.all([
+        fetchRepoTree(owner, repo, ref),
+        fetchReadme(owner, repo, ref),
+      ]);
+      const manifestPaths = findManifestPaths(paths).slice(0, 6);
+      const parts = [
+        `Repository: ${owner}/${repo}`,
+        `Folder/file tree:\n${truncateText(paths.join("\n"), 4000).text}`,
+        manifestPaths.length ? `Key manifest files found: ${manifestPaths.join(", ")}` : "",
+        readme ? `README:\n${truncateText(readme, 4000).text}` : "",
+      ].filter(Boolean);
+      return {
+        question:
+          "Based on the repository structure and README below, explain the overall " +
+          "architecture of this project — the major components/modules, how they " +
+          "relate, the tech stack, and the general data/request flow if apparent.",
+        context: parts.join("\n\n"),
+      };
+    }
+
+    case "folder-structure": {
+      const { paths, truncatedByApi } = await fetchRepoTree(owner, repo, ref);
+      const { text, truncated } = truncateText(paths.join("\n"));
+      return {
+        question:
+          "Explain the folder/directory structure of this repository below — what " +
+          "each top-level directory is for and how the project is organized.",
+        context:
+          `Repository: ${owner}/${repo}\n\nFile tree:\n${text}` +
+          (truncated || truncatedByApi ? "\n[...tree truncated...]" : ""),
+      };
+    }
+
+    case "installation": {
+      const readme = await fetchReadme(owner, repo, ref);
+      const { text, truncated } = truncateText(readme || "");
+      return {
+        question:
+          "Based on the README below, write clear step-by-step installation " +
+          "instructions for this project. If the README doesn't cover installation, say so.",
+        context:
+          `Repository: ${owner}/${repo}\n\nREADME:\n${text || "(no README found)"}` +
+          (truncated ? "\n[...truncated...]" : ""),
+      };
+    }
+
+    case "dependencies": {
+      const { paths, branch } = await fetchRepoTree(owner, repo, ref);
+      const manifestPaths = findManifestPaths(paths).slice(0, 5);
+      const files = await Promise.all(
+        manifestPaths.map(async (p) => ({
+          path: p,
+          content: await fetchRawFile(owner, repo, ref || branch, p),
+        }))
+      );
+      const fileParts = files
+        .filter((f) => f.content)
+        .map((f) => `--- ${f.path} ---\n${truncateText(f.content, 3000).text}`);
+      return {
+        question:
+          "List and briefly explain the key dependencies of this project based on the " +
+          "manifest files below, including what each dependency is likely used for.",
+        context: fileParts.length
+          ? `Repository: ${owner}/${repo}\n\n${fileParts.join("\n\n")}`
+          : `Repository: ${owner}/${repo}\n\nNo recognizable dependency manifest files ` +
+            `(package.json, requirements.txt, etc.) were found.`,
+      };
+    }
+
+    case "explain-bug": {
+      const { issue, comments } = await fetchIssue(owner, repo, issueNumber);
+      const commentsText = comments
+        .slice(0, 8)
+        .map((c) => `${c.user?.login || "someone"}: ${c.body}`)
+        .join("\n\n");
+      return {
+        question:
+          "Explain the bug described in this GitHub issue below: what's going wrong, " +
+          "the likely root cause, and a suggested fix if you can infer one from the discussion.",
+        context: truncateText(
+          `Issue #${issueNumber}: ${issue.title}\n\n${issue.body || ""}` +
+            (commentsText ? `\n\nDiscussion:\n${commentsText}` : "")
+        ).text,
+      };
+    }
+
+    case "generate-readme": {
+      const [{ paths, branch }, readme, repoInfo] = await Promise.all([
+        fetchRepoTree(owner, repo, ref),
+        fetchReadme(owner, repo, ref),
+        githubApiFetch(`/repos/${owner}/${repo}`).catch(() => null),
+      ]);
+      const manifestPaths = findManifestPaths(paths).slice(0, 6);
+      const manifestFiles = await Promise.all(
+        manifestPaths.map(async (p) => ({
+          path: p,
+          content: await fetchRawFile(owner, repo, ref || branch, p),
+        }))
+      );
+      const parts = [
+        `Repository: ${owner}/${repo}`,
+        repoInfo?.description ? `Description: ${repoInfo.description}` : "",
+        `File tree:\n${truncateText(paths.join("\n"), 3000).text}`,
+        ...manifestFiles
+          .filter((f) => f.content)
+          .map((f) => `--- ${f.path} ---\n${truncateText(f.content, 1500).text}`),
+        readme ? `Existing README:\n${truncateText(readme, 3000).text}` : "",
+      ].filter(Boolean);
+      return {
+        question: readme
+          ? "Rewrite/improve the README.md for this repository based on the information " +
+            "below — keep anything accurate, fix or expand anything unclear, and follow " +
+            "standard README conventions (title, description, installation, usage, etc.)."
+          : "Generate a complete, well-structured README.md for this repository based on " +
+            "the information below (title, description, installation, usage, etc.).",
+        context: parts.join("\n\n"),
+      };
+    }
+
+    case "generate-docs": {
+      if (path) {
+        const branch = ref || (await fetchDefaultBranch(owner, repo));
+        const content = await fetchRawFile(owner, repo, branch, path);
+        const { text, truncated } = truncateText(content || "");
+        return {
+          question:
+            `Generate documentation for the file "${path}" below — a summary of its ` +
+            `purpose, and doc comments/docstrings for its main functions/exports.`,
+          context: `File: ${path}\n\n${text}${truncated ? "\n[...truncated...]" : ""}`,
+        };
+      }
+      const [{ paths }, readme] = await Promise.all([
+        fetchRepoTree(owner, repo, ref),
+        fetchReadme(owner, repo, ref),
+      ]);
+      return {
+        question:
+          "Based on the repository structure and README below, propose a documentation " +
+          "outline for this project (what doc pages/sections it should have and what each should cover).",
+        context:
+          `Repository: ${owner}/${repo}\n\nFile tree:\n${truncateText(paths.join("\n"), 4000).text}` +
+          (readme ? `\n\nREADME:\n${truncateText(readme, 3000).text}` : ""),
+      };
+    }
+
+    case "explain-function": {
+      const branch = ref || (await fetchDefaultBranch(owner, repo));
+      const content = selection || (path ? await fetchRawFile(owner, repo, branch, path) : null);
+      const { text, truncated } = truncateText(content || "");
+      return {
+        question: selection
+          ? "Explain what the following selected code does — its purpose, parameters, " +
+            "return value, and any side effects."
+          : `Explain the main functions/exports in the file "${path}" below and what each does.`,
+        context: `${path ? `File: ${path}\n\n` : ""}${text}${truncated ? "\n[...truncated...]" : ""}`,
+      };
+    }
+
+    default:
+      throw new Error(`Unknown GitHub Mode action: ${action}`);
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== "GITHUB_MODE_ACTION") return;
+  const tabId = sender.tab?.id;
+  if (!tabId) return;
+
+  (async () => {
+    try {
+      const { question, context } = await buildGithubAction(message);
+      await chrome.storage.session.set({
+        [`pendingGithubAction_${tabId}`]: { question, context },
+      });
+      await surfaceChatUi(tabId);
+      sendResponse({ ok: true });
+    } catch (err) {
+      sendResponse({ ok: false, error: err.message || String(err) });
+    }
+  })();
+
+  return true; // keep the message channel open for the async work above
 });
 
 // Context-menu actions ("Ask about selection", "Translate to Bangla"):

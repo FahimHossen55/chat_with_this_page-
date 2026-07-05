@@ -36,6 +36,7 @@ let currentAssistantEl = null;
 let currentAssistantRaw = "";
 let typingEl = null;
 let lastQuestion = "";
+let lastContext = undefined;
 // Tracks which tab an in-flight request belongs to, so that switching
 // tabs mid-stream (side panel only — a popup is torn down on tab switch)
 // doesn't paint one tab's streamed tokens into another tab's message list.
@@ -145,7 +146,7 @@ function addMessage(role, text) {
     retryBtn.addEventListener("click", () => {
       row.remove();
       updateEmptyState();
-      if (lastQuestion) sendQuestion(lastQuestion);
+      if (lastQuestion) sendQuestion(lastQuestion, lastContext);
     });
     row.appendChild(retryBtn);
   }
@@ -209,6 +210,21 @@ async function checkPendingTranslation(tabId) {
   sendQuestion(question);
 }
 
+// Set by background.js when a GitHub Mode rail button is clicked (see
+// GITHUB_MODE_ACTION in background.js / github.js for the rail itself).
+// Unlike pendingSelection, this carries a `context` blob of GitHub API
+// data alongside the visible question — see sendQuestion's context param.
+async function checkPendingGithubAction(tabId) {
+  const key = `pendingGithubAction_${tabId}`;
+  const stored = await chrome.storage.session.get(key);
+  const pending = stored[key];
+  if (!pending) return;
+
+  await chrome.storage.session.remove(key);
+  await chrome.action.setBadgeText({ tabId, text: "" });
+  sendQuestion(pending.question, pending.context);
+}
+
 // Shared by the initial load and every subsequent tab switch / in-tab
 // navigation. A popup is torn down by Chrome on tab switch so this
 // effectively only ever runs once for a popup instance, but a side panel
@@ -226,6 +242,7 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
     if (tabUrl) await loadHistory(tabUrl);
     await checkPendingSelection(tabId);
     await checkPendingTranslation(tabId);
+    await checkPendingGithubAction(tabId);
   }
 }
 
@@ -288,10 +305,11 @@ function autoResize() {
   questionEl.style.height = `${Math.min(questionEl.scrollHeight, 96)}px`;
 }
 
-function sendQuestion(question) {
+function sendQuestion(question, context) {
   if (!question || !activeTabId) return;
 
   lastQuestion = question;
+  lastContext = context;
   streamingForTabId = activeTabId;
   addMessage("user", question);
   questionEl.value = "";
@@ -301,7 +319,7 @@ function sendQuestion(question) {
   typingEl = showTyping();
 
   if (!port) connectPort();
-  port.postMessage({ type: "ASK", tabId: activeTabId, question });
+  port.postMessage({ type: "ASK", tabId: activeTabId, question, context });
 }
 
 formEl.addEventListener("submit", (e) => {
