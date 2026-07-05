@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Chat With This Page — Settings</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 420px;
+        margin: 24px auto;
+        font-size: 14px;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 16px;
+      }
+      label {
+        display: block;
+        margin-top: 14px;
+        font-weight: 600;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 6px;
+        margin-top: 4px;
+        border: 1px solid #d0d0d0;
+        border-radius: 6px;
+        box-sizing: border-box;
+      }
+      .hint {
+        color: #666;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      button {
+        margin-top: 18px;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+        cursor: pointer;
+      }
+      #status {
+        margin-left: 10px;
+        color: #067647;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Chat With This Page — Settings</h1>
+
+    <label for="backendUrl">Backend URL</label>
+    <input id="backendUrl" type="text" placeholder="http://localhost:8000" />
+    <div class="hint">Points at your FastAPI proxy (local dev or deployed EC2 instance).</div>
+
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="groq">Groq</option>
+    </select>
+    <div class="hint">API keys are stored server-side only; nothing to enter here.</div>
+
+    <label for="model">Model</label>
+    <input id="model" type="text" placeholder="llama-3.1-8b-instant" />
+
+    <button id="saveBtn">Save</button>
+    <span id="status"></span>
+
+    <script src="options.js"></script>
+  </body>
+</html>
