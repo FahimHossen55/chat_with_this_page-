@@ -6,7 +6,6 @@ const sendBtn = document.getElementById("sendBtn");
 const charCountEl = document.getElementById("charCount");
 const pageTitleEl = document.getElementById("pageTitle");
 const modelBadgeTextEl = document.getElementById("modelBadgeText");
-const moreMenuEl = document.getElementById("moreMenu");
 
 document.getElementById("optionsBtn").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
@@ -288,80 +287,6 @@ document.getElementById("sidePanelBtn")?.addEventListener("click", async () => {
   if (!chrome.sidePanel || !activeTabId) return;
   await chrome.sidePanel.open({ tabId: activeTabId });
   window.close();
-});
-
-// --- Export conversation (Markdown / JSON) ---
-
-function downloadBlob(filename, content, mime) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function historyToMarkdown(history, title, url) {
-  const lines = [`# Chat with: ${title || url}`, "", `**URL:** ${url}`, ""];
-  for (const turn of history) {
-    lines.push(`**${turn.role === "user" ? "You" : "Assistant"}:**`, "", turn.content, "");
-  }
-  return lines.join("\n");
-}
-
-function timestampForFilename() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-async function exportHistory(format) {
-  if (!activeTabUrl) return;
-  const history = await getStoredHistory(activeTabUrl);
-  if (!history.length) return;
-
-  const stamp = timestampForFilename();
-  if (format === "json") {
-    const payload = {
-      url: activeTabUrl,
-      title: pageTitleEl.textContent,
-      exportedAt: new Date().toISOString(),
-      messages: history,
-    };
-    downloadBlob(`chat-export-${stamp}.json`, JSON.stringify(payload, null, 2), "application/json");
-  } else {
-    downloadBlob(
-      `chat-export-${stamp}.md`,
-      historyToMarkdown(history, pageTitleEl.textContent, activeTabUrl),
-      "text/markdown"
-    );
-  }
-}
-
-document.getElementById("moreBtn")?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  moreMenuEl.hidden = !moreMenuEl.hidden;
-});
-
-moreMenuEl?.addEventListener("click", (e) => e.stopPropagation());
-
-document.getElementById("translateMenuItem")?.addEventListener("click", () => {
-  moreMenuEl.hidden = true;
-  sendQuestion(
-    "Translate this page into Bangla (Bengali). Respond with only the Bangla translation."
-  );
-});
-
-moreMenuEl?.querySelectorAll("button[data-format]").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    moreMenuEl.hidden = true;
-    exportHistory(btn.dataset.format);
-  });
-});
-
-document.addEventListener("click", () => {
-  if (moreMenuEl) moreMenuEl.hidden = true;
 });
 
 async function refreshModelBadge() {

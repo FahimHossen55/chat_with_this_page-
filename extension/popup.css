@@ -169,47 +169,6 @@ header {
   height: 16px;
 }
 
-.more-wrap {
-  position: relative;
-}
-
-.more-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 10;
-  min-width: 180px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-}
-
-.more-menu button {
-  border: none;
-  background: none;
-  color: var(--text);
-  text-align: left;
-  font-size: 12.5px;
-  padding: 7px 9px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.more-menu button:hover {
-  background: var(--bg-subtle);
-  color: var(--primary);
-}
-
-.menu-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 2px;
-}
-
 /* ---------- Messages ---------- */
 
 #messages {
