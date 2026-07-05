@@ -63,7 +63,14 @@
     <div class="hint">API keys are stored server-side only; nothing to enter here.</div>
 
     <label for="model">Model</label>
-    <input id="model" type="text" placeholder="llama-3.1-8b-instant" />
+    <select id="model">
+      <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant — fastest, cheapest</option>
+      <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile — best all-around quality</option>
+      <option value="openai/gpt-oss-120b">GPT-OSS 120B — OpenAI open-weight, high quality</option>
+      <option value="openai/gpt-oss-20b">GPT-OSS 20B — OpenAI open-weight, fast</option>
+      <option value="qwen/qwen3-32b">Qwen3 32B — strong reasoning</option>
+    </select>
+    <div class="hint">Larger models are slower and pricier; Llama 3.1 8B is the default.</div>
 
     <button id="saveBtn">Save</button>
     <span id="status"></span>
