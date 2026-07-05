@@ -6,6 +6,9 @@ const sendBtn = document.getElementById("sendBtn");
 const charCountEl = document.getElementById("charCount");
 const pageTitleEl = document.getElementById("pageTitle");
 const modelBadgeTextEl = document.getElementById("modelBadgeText");
+const scrollBottomBtn = document.getElementById("scrollBottomBtn");
+const headerEl = document.querySelector("header");
+const inputRowEl = document.querySelector(".input-row");
 
 document.getElementById("optionsBtn").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
@@ -51,11 +54,50 @@ function updateEmptyState() {
   emptyStateEl.style.display = hasMessages ? "none" : "flex";
 }
 
-function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+// Within this many px of the bottom counts as "at the bottom" — lets a
+// user scroll up to reread earlier messages without new chunks yanking
+// them back down.
+const NEAR_BOTTOM_THRESHOLD = 80;
+
+function isNearBottom() {
+  return (
+    messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <
+    NEAR_BOTTOM_THRESHOLD
+  );
 }
 
+// Callers that are about to grow #messages' content should read
+// isNearBottom() BEFORE mutating the DOM (growth alone can flip it to
+// false even though the user hadn't scrolled) and pass the result here.
+function scrollToBottom(shouldStick = true) {
+  if (shouldStick) {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  updateScrollBottomBtn();
+}
+
+function updateScrollBottomBtn() {
+  scrollBottomBtn.classList.toggle("visible", !isNearBottom());
+}
+
+messagesEl.addEventListener("scroll", () => {
+  updateScrollBottomBtn();
+  headerEl.classList.toggle("scrolled", messagesEl.scrollTop > 2);
+});
+
+scrollBottomBtn.addEventListener("click", () => {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  scrollBottomBtn.classList.remove("visible");
+});
+
+const COPY_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.6"/></svg>';
+const CHECK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 12.5l4.5 4.5L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function addMessage(role, text) {
+  const shouldStick = role === "user" || isNearBottom();
+
   const row = document.createElement("div");
   row.className = `msg-row ${role}`;
 
@@ -81,11 +123,15 @@ function addMessage(role, text) {
     actions.className = "msg-actions";
     const copyBtn = document.createElement("button");
     copyBtn.type = "button";
-    copyBtn.textContent = "Copy";
+    copyBtn.innerHTML = `${COPY_ICON}<span>Copy</span>`;
     copyBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(bubble.dataset.raw ?? bubble.textContent);
-      copyBtn.textContent = "Copied";
-      setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
+      copyBtn.innerHTML = `${CHECK_ICON}<span>Copied</span>`;
+      copyBtn.classList.add("copied");
+      setTimeout(() => {
+        copyBtn.innerHTML = `${COPY_ICON}<span>Copy</span>`;
+        copyBtn.classList.remove("copied");
+      }, 1200);
     });
     actions.appendChild(copyBtn);
     row.appendChild(actions);
@@ -106,11 +152,12 @@ function addMessage(role, text) {
 
   messagesEl.appendChild(row);
   updateEmptyState();
-  scrollToBottom();
+  scrollToBottom(shouldStick);
   return bubble;
 }
 
 function showTyping() {
+  const shouldStick = isNearBottom();
   const row = document.createElement("div");
   row.className = "msg-row assistant";
   const bubble = document.createElement("div");
@@ -118,7 +165,7 @@ function showTyping() {
   bubble.innerHTML = "<span></span><span></span><span></span>";
   row.appendChild(bubble);
   messagesEl.appendChild(row);
-  scrollToBottom();
+  scrollToBottom(shouldStick);
   return row;
 }
 
@@ -173,6 +220,8 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
   pageTitleEl.textContent = tabTitle || "No page detected";
   messagesEl.querySelectorAll(".msg-row").forEach((row) => row.remove());
   updateEmptyState();
+  headerEl.classList.remove("scrolled");
+  updateScrollBottomBtn();
   if (tabId) {
     if (tabUrl) await loadHistory(tabUrl);
     await checkPendingSelection(tabId);
@@ -182,6 +231,7 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
 
 function setSending(isSending) {
   sendBtn.disabled = isSending;
+  sendBtn.classList.toggle("loading", isSending);
   questionEl.disabled = isSending;
 }
 
@@ -192,6 +242,7 @@ function connectPort() {
 
     if (message.type === "CHUNK") {
       if (!forActiveTab) return;
+      const shouldStick = isNearBottom();
       if (typingEl) {
         typingEl.remove();
         typingEl = null;
@@ -199,14 +250,16 @@ function connectPort() {
       if (!currentAssistantEl) {
         currentAssistantEl = addMessage("assistant", "");
       }
+      currentAssistantEl.classList.add("streaming");
       currentAssistantRaw += message.delta;
       currentAssistantEl.innerHTML = renderMarkdownToHtml(currentAssistantRaw);
       currentAssistantEl.dataset.raw = currentAssistantRaw;
-      scrollToBottom();
+      scrollToBottom(shouldStick);
     } else if (message.type === "DONE") {
       if (forActiveTab && typingEl) {
         typingEl.remove();
       }
+      currentAssistantEl?.classList.remove("streaming");
       typingEl = null;
       currentAssistantEl = null;
       currentAssistantRaw = "";
@@ -215,6 +268,7 @@ function connectPort() {
     } else if (message.type === "ERROR") {
       if (forActiveTab) {
         if (typingEl) typingEl.remove();
+        currentAssistantEl?.classList.remove("streaming");
         addMessage("error", message.message);
       }
       typingEl = null;
@@ -264,18 +318,27 @@ questionEl.addEventListener("keydown", (e) => {
 
 questionEl.addEventListener("input", () => {
   autoResize();
-  charCountEl.textContent = `${questionEl.value.length}/${questionEl.maxLength}`;
+  const len = questionEl.value.length;
+  charCountEl.textContent = `${len}/${questionEl.maxLength}`;
+  charCountEl.classList.toggle("limit-near", len > questionEl.maxLength * 0.9);
 });
+
+questionEl.addEventListener("focus", () => inputRowEl.classList.add("focused"));
+questionEl.addEventListener("blur", () => inputRowEl.classList.remove("focused"));
 
 document.querySelectorAll(".suggestion").forEach((btn) => {
   btn.addEventListener("click", () => sendQuestion(btn.textContent));
 });
 
-document.getElementById("clearBtn").addEventListener("click", async () => {
+document.getElementById("clearBtn").addEventListener("click", async (e) => {
   if (!activeTabUrl) return;
+  const btn = e.currentTarget;
+  btn.classList.add("spin");
+  setTimeout(() => btn.classList.remove("spin"), 600);
   await chrome.storage.local.remove(HISTORY_PREFIX + normalizeUrl(activeTabUrl));
   messagesEl.querySelectorAll(".msg-row").forEach((row) => row.remove());
   updateEmptyState();
+  updateScrollBottomBtn();
 });
 
 document.getElementById("modelBadge").addEventListener("click", () => {

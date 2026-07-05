@@ -46,14 +46,26 @@ async function testConnection() {
 
 testBtn.addEventListener("click", testConnection);
 
-document.getElementById("saveBtn").addEventListener("click", async () => {
+const saveBtn = document.getElementById("saveBtn");
+const saveBtnLabel = saveBtn.textContent;
+
+saveBtn.addEventListener("click", async () => {
   await chrome.storage.sync.set({
     backendUrl: backendUrlEl.value.trim(),
     provider: providerEl.value,
     model: modelEl.value.trim(),
   });
-  statusEl.textContent = "Saved.";
-  setTimeout(() => (statusEl.textContent = ""), 1500);
+
+  saveBtn.classList.add("success");
+  saveBtn.textContent = "Saved ✓";
+  statusEl.textContent = "Settings saved.";
+  statusEl.classList.add("visible");
+
+  setTimeout(() => {
+    saveBtn.classList.remove("success");
+    saveBtn.textContent = saveBtnLabel;
+    statusEl.classList.remove("visible");
+  }, 1500);
 });
 
 load();
