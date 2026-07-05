@@ -3,7 +3,7 @@
   "name": "Chat With This Page",
   "version": "1.0.0",
   "description": "Chat with the content of your currently open webpage using an LLM.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",
@@ -15,6 +15,9 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "options_page": "options.html",
   "icons": {

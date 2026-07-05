@@ -1,11 +1,18 @@
 <!doctype html>
-<!-- Keep this file's <body> in sync with sidepanel.html's <body> (which
-     omits only the #sidePanelBtn button) — see comment there. -->
+<!--
+  Keep this file's <body> in sync with popup.html's <body>, minus the
+  #sidePanelBtn header button (a side panel doesn't need a button to open
+  itself). All JS/behavior is shared via popup.js — this file only differs
+  in its stylesheet (sidepanel.css instead of a fixed popup width/height)
+  and the absence of that one button. There is no build step in this repo
+  to de-duplicate this markup automatically.
+-->
 <html>
   <head>
     <meta charset="utf-8" />
     <title>Chat With This Page</title>
     <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
     <header>
@@ -26,20 +33,6 @@
       <div class="header-actions">
         <button id="modelBadge" class="chip" type="button" title="Model in use — change in Settings">
           <span id="modelBadgeText">…</span>
-        </button>
-        <button id="sidePanelBtn" class="icon-btn" type="button" title="Open in side panel">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect
-              x="3.5"
-              y="4.5"
-              width="17"
-              height="15"
-              rx="2"
-              stroke="currentColor"
-              stroke-width="1.6"
-            />
-            <path d="M14.5 4.5v15" stroke="currentColor" stroke-width="1.6" />
-          </svg>
         </button>
         <div class="more-wrap">
           <button id="moreBtn" class="icon-btn" type="button" title="More actions">

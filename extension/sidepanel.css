@@ -1,0 +1,8 @@
+/* Overrides popup.css's fixed popup dimensions — a side panel must fill
+   whatever space Chrome's panel UI gives it instead. */
+html,
+body {
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+}

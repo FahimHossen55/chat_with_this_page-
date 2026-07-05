@@ -3,77 +3,66 @@
   <head>
     <meta charset="utf-8" />
     <title>Chat With This Page — Settings</title>
-    <style>
-      body {
-        font-family: system-ui, -apple-system, sans-serif;
-        max-width: 420px;
-        margin: 24px auto;
-        font-size: 14px;
-        color: #1a1a1a;
-      }
-      h1 {
-        font-size: 16px;
-      }
-      label {
-        display: block;
-        margin-top: 14px;
-        font-weight: 600;
-      }
-      input,
-      select {
-        width: 100%;
-        padding: 6px;
-        margin-top: 4px;
-        border: 1px solid #d0d0d0;
-        border-radius: 6px;
-        box-sizing: border-box;
-      }
-      .hint {
-        color: #666;
-        font-size: 12px;
-        margin-top: 2px;
-      }
-      button {
-        margin-top: 18px;
-        background: #2563eb;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 8px 16px;
-        cursor: pointer;
-      }
-      #status {
-        margin-left: 10px;
-        color: #067647;
-        font-size: 12px;
-      }
-    </style>
+    <link rel="stylesheet" href="options.css" />
   </head>
   <body>
-    <h1>Chat With This Page — Settings</h1>
+    <div class="page">
+      <header class="page-header">
+        <span class="logo">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v10c0 .83-.67 1.5-1.5 1.5H9l-4 3.5v-3.5H5.5C4.67 17 4 16.33 4 15.5v-10Z"
+              fill="currentColor"
+            />
+          </svg>
+        </span>
+        <div>
+          <h1>Chat With This Page</h1>
+          <p class="subtitle">Settings</p>
+        </div>
+      </header>
 
-    <label for="backendUrl">Backend URL</label>
-    <input id="backendUrl" type="text" placeholder="http://localhost:8000" />
-    <div class="hint">Points at your FastAPI proxy (local dev or deployed EC2 instance).</div>
+      <section class="card">
+        <div class="card-header">
+          <h2>Connection</h2>
+          <span id="connectionStatus" class="status-pill unknown">Unknown</span>
+        </div>
 
-    <label for="provider">Provider</label>
-    <select id="provider">
-      <option value="groq">Groq</option>
-    </select>
-    <div class="hint">API keys are stored server-side only; nothing to enter here.</div>
+        <label for="backendUrl">Backend URL</label>
+        <div class="field-row">
+          <input id="backendUrl" type="text" placeholder="http://localhost:8000" />
+          <button id="testBtn" type="button" class="secondary-btn">Test</button>
+        </div>
+        <p class="hint">Points at your FastAPI proxy (local dev or deployed EC2 instance).</p>
+      </section>
 
-    <label for="model">Model</label>
-    <select id="model">
-      <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant — fastest, cheapest</option>
-      <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile — best all-around quality</option>
-      <option value="openai/gpt-oss-120b">GPT-OSS 120B — OpenAI open-weight, high quality</option>
-      <option value="openai/gpt-oss-20b">GPT-OSS 20B — OpenAI open-weight, fast</option>
-      <option value="qwen/qwen3-32b">Qwen3 32B — strong reasoning</option>
-    </select>
-    <div class="hint">Larger models are slower and pricier; Llama 3.1 8B is the default.</div>
+      <section class="card">
+        <div class="card-header">
+          <h2>Model</h2>
+        </div>
 
-    <button id="saveBtn">Save</button>
-    <span id="status"></span>
+        <label for="provider">Provider</label>
+        <select id="provider">
+          <option value="groq">Groq</option>
+        </select>
+        <p class="hint">API keys are stored server-side only — nothing to enter here.</p>
+
+        <label for="model">Model</label>
+        <select id="model">
+          <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant — fastest, cheapest</option>
+          <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile — best all-around quality</option>
+          <option value="openai/gpt-oss-120b">GPT-OSS 120B — OpenAI open-weight, high quality</option>
+          <option value="openai/gpt-oss-20b">GPT-OSS 20B — OpenAI open-weight, fast</option>
+          <option value="qwen/qwen3-32b">Qwen3 32B — strong reasoning</option>
+        </select>
+        <p class="hint">Larger models are slower and pricier; Llama 3.1 8B is the default.</p>
+      </section>
+
+      <div class="actions">
+        <button id="saveBtn" type="button" class="primary-btn">Save changes</button>
+        <span id="status" class="save-status"></span>
+      </div>
+    </div>
 
     <script src="options.js"></script>
   </body>

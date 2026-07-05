@@ -2,98 +2,558 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #f7f8fa;
+  --border: #e5e7eb;
+  --text: #16181d;
+  --text-muted: #6b7280;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-soft: #eef2ff;
+  --user-bubble: #2563eb;
+  --user-text: #ffffff;
+  --assistant-bubble: #f1f2f5;
+  --assistant-text: #16181d;
+  --error-bg: #fdecec;
+  --error-text: #b42318;
+  --error-border: #f6c9c4;
+  --scrollbar: #d7d9de;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --bg-subtle: #1d2027;
+    --border: #2b2f38;
+    --text: #edeef0;
+    --text-muted: #9aa0ac;
+    --primary: #3b82f6;
+    --primary-dark: #2563eb;
+    --primary-soft: #1e2a4a;
+    --user-bubble: #3b82f6;
+    --user-text: #ffffff;
+    --assistant-bubble: #262a33;
+    --assistant-text: #edeef0;
+    --error-bg: #3a1f1f;
+    --error-text: #ff9b8f;
+    --error-border: #5c2c28;
+    --scrollbar: #3a3f4a;
+  }
+}
+
+html,
 body {
-  width: 360px;
-  height: 480px;
+  width: 380px;
+  height: 560px;
+}
+
+body {
   margin: 0;
   display: flex;
   flex-direction: column;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
-  color: #1a1a1a;
+  color: var(--text);
+  background: var(--bg);
 }
+
+/* ---------- Header ---------- */
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid #e2e2e2;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
 }
 
-header .title {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.logo svg {
+  width: 16px;
+  height: 16px;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.brand-text .title {
   font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-header button {
+.brand-text .subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 4px 9px;
+  cursor: pointer;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.more-wrap {
+  position: relative;
+}
+
+.more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 180px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.more-menu button {
   border: none;
   background: none;
+  color: var(--text);
+  text-align: left;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 15px;
 }
+
+.more-menu button:hover {
+  background: var(--bg-subtle);
+  color: var(--primary);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+
+/* ---------- Messages ---------- */
 
 #messages {
   flex: 1;
   overflow-y: auto;
-  padding: 10px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+#messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+#messages::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 8px;
+}
+
+.empty-state {
+  margin: auto;
+  text-align: center;
+  padding: 12px 8px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.empty-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.empty-title {
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+  font-size: 13.5px;
+}
+
+.empty-hint {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 260px;
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.suggestion {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestion:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.msg-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 92%;
+}
+
+.msg-row.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.msg-row.assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.msg-row.error {
+  align-self: stretch;
+  max-width: 100%;
+}
+
+.msg-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  padding: 0 2px;
 }
 
 .msg {
-  padding: 6px 10px;
-  border-radius: 10px;
-  max-width: 90%;
-  white-space: pre-wrap;
+  padding: 7px 11px;
+  border-radius: 12px;
+  /* Markdown rendering emits its own <br>/<ul>/<pre> block structure for
+     assistant replies, so raw source whitespace should collapse normally;
+     .msg pre below restores literal whitespace for code specifically. */
+  white-space: normal;
   word-wrap: break-word;
+  line-height: 1.45;
+  position: relative;
 }
 
-.msg.user {
-  align-self: flex-end;
-  background: #2563eb;
-  color: white;
+.msg code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11.5px;
+  background: rgba(127, 127, 127, 0.18);
+  padding: 1px 4px;
+  border-radius: 4px;
 }
 
-.msg.assistant {
+.msg pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.14);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.msg pre code {
+  background: none;
+  padding: 0;
+  font-size: 11.5px;
+}
+
+.msg a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.msg-row.assistant .msg a {
+  color: var(--primary);
+}
+
+.msg ul,
+.msg ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.msg li {
+  margin: 2px 0;
+}
+
+.msg strong {
+  font-weight: 700;
+}
+
+.msg em {
+  font-style: italic;
+}
+
+.msg-row.user .msg,
+.msg-row.error .msg {
+  /* User/error bubbles still use textContent with raw newline
+     characters (never markdown-rendered), so they need pre-wrap;
+     assistant bubbles get their line breaks from rendered <br> tags. */
+  white-space: pre-wrap;
+}
+
+.msg-row.user .msg {
+  background: var(--user-bubble);
+  color: var(--user-text);
+  border-bottom-right-radius: 3px;
+}
+
+.msg-row.assistant .msg {
+  background: var(--assistant-bubble);
+  color: var(--assistant-text);
+  border-bottom-left-radius: 3px;
+}
+
+.msg-row.error .msg {
+  background: var(--error-bg);
+  color: var(--error-text);
+  border: 1px solid var(--error-border);
+}
+
+.msg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  padding: 0 2px;
+}
+
+.msg-actions button {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.msg-actions button:hover {
+  color: var(--primary);
+}
+
+.retry-btn {
   align-self: flex-start;
-  background: #f1f1f1;
-  color: #1a1a1a;
+  margin-top: 6px;
+  border: 1px solid var(--error-border);
+  background: transparent;
+  color: var(--error-text);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
 }
 
-.msg.error {
-  align-self: stretch;
-  background: #fde8e8;
-  color: #b42318;
+.retry-btn:hover {
+  background: var(--error-bg);
 }
+
+.typing {
+  display: inline-flex;
+  gap: 3px;
+  padding: 4px 2px;
+}
+
+.typing span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: bounce 1.2s infinite ease-in-out;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* ---------- Input ---------- */
 
 #askForm {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.input-row {
   display: flex;
+  align-items: flex-end;
   gap: 6px;
-  padding: 8px;
-  border-top: 1px solid #e2e2e2;
 }
 
 #question {
   flex: 1;
   resize: none;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
   font-family: inherit;
-  font-size: inherit;
+  font-size: 12.5px;
+  max-height: 96px;
+  line-height: 1.4;
 }
 
-#sendBtn {
+#question:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--bg);
+}
+
+#question:disabled {
+  opacity: 0.6;
+}
+
+.send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
   border: none;
-  background: #2563eb;
+  background: var(--primary);
   color: white;
-  border-radius: 6px;
-  padding: 0 14px;
+  border-radius: 10px;
   cursor: pointer;
 }
 
-#sendBtn:disabled {
-  background: #9db8e8;
+.send-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.send-btn:disabled {
+  background: var(--scrollbar);
   cursor: default;
+}
+
+.hint-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }

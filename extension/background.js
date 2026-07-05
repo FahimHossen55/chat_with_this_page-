@@ -1,9 +1,25 @@
 // MV3 service worker: goes idle after ~30s, so nothing here relies on module-level
-// state surviving between events. Per-tab history lives in chrome.storage.session.
+// state surviving between events. Conversation history lives in chrome.storage.local,
+// keyed by page URL (not tab ID) so it survives tab close/reopen and full browser
+// restarts — tab IDs are reassigned on restart and can't serve as a durable key.
 
 const DEFAULT_BACKEND_URL = "http://localhost:8000";
 const DEFAULT_MODEL = "llama-3.1-8b-instant";
 const MAX_HISTORY_TURNS = 6;
+
+const HISTORY_PREFIX = "history_";
+const HISTORY_INDEX_KEY = "historyIndex"; // array of URLs, most-recently-used first
+const MAX_STORED_PAGES = 50; // cap so local storage doesn't grow unbounded over time
+
+function normalizeUrl(url) {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 async function getBackendUrl() {
   const { backendUrl } = await chrome.storage.sync.get("backendUrl");
@@ -15,19 +31,36 @@ async function getModel() {
   return model || DEFAULT_MODEL;
 }
 
-async function getTabHistory(tabId) {
-  const key = `history_${tabId}`;
-  const stored = await chrome.storage.session.get(key);
+async function getPageHistory(url) {
+  const key = HISTORY_PREFIX + normalizeUrl(url);
+  const stored = await chrome.storage.local.get(key);
   return stored[key] || [];
 }
 
-async function appendTabHistory(tabId, question, answer) {
-  const key = `history_${tabId}`;
-  const history = await getTabHistory(tabId);
+// Moves `url` to the front of the LRU index and evicts the oldest entries
+// beyond MAX_STORED_PAGES so history for pages you rarely revisit doesn't
+// accumulate forever.
+async function touchHistoryIndex(url) {
+  const normalized = normalizeUrl(url);
+  const { [HISTORY_INDEX_KEY]: index = [] } = await chrome.storage.local.get(HISTORY_INDEX_KEY);
+  const next = [normalized, ...index.filter((u) => u !== normalized)];
+  const kept = next.slice(0, MAX_STORED_PAGES);
+  const evicted = next.slice(MAX_STORED_PAGES);
+  if (evicted.length) {
+    await chrome.storage.local.remove(evicted.map((u) => HISTORY_PREFIX + u));
+  }
+  await chrome.storage.local.set({ [HISTORY_INDEX_KEY]: kept });
+}
+
+async function appendPageHistory(url, question, answer) {
+  const normalized = normalizeUrl(url);
+  const key = HISTORY_PREFIX + normalized;
+  const history = await getPageHistory(url);
   history.push({ role: "user", content: question });
   history.push({ role: "assistant", content: answer });
   const trimmed = history.slice(-MAX_HISTORY_TURNS * 2);
-  await chrome.storage.session.set({ [key]: trimmed });
+  await chrome.storage.local.set({ [key]: trimmed });
+  await touchHistoryIndex(normalized);
 }
 
 async function extractPageContent(tabId) {
@@ -39,12 +72,14 @@ async function extractPageContent(tabId) {
 }
 
 async function streamChat(port, tabId, question) {
-  const [page, history, backendUrl, model] = await Promise.all([
+  // Page extraction must resolve first since the history lookup below is
+  // keyed by the page's URL, which we only learn from this call.
+  const [page, backendUrl, model] = await Promise.all([
     extractPageContent(tabId),
-    getTabHistory(tabId),
     getBackendUrl(),
     getModel(),
   ]);
+  const history = await getPageHistory(page.url);
 
   const systemPrompt =
     `You are a helpful assistant answering questions about a webpage.\n` +
@@ -99,7 +134,7 @@ async function streamChat(port, tabId, question) {
     }
   }
 
-  await appendTabHistory(tabId, question, fullAnswer);
+  await appendPageHistory(page.url, question, fullAnswer);
   port.postMessage({ type: "DONE" });
 }
 
@@ -112,4 +147,61 @@ chrome.runtime.onConnect.addListener((port) => {
       port.postMessage({ type: "ERROR", message: err.message || String(err) });
     });
   });
+});
+
+// Context-menu actions ("Ask about selection", "Translate to Bangla"):
+// persist a one-shot payload first (so it survives regardless of whether a
+// UI surface actually manages to open — MV3 popups can't have state
+// injected into them programmatically, and chrome.action.openPopup() is
+// unreliable when called from a non-toolbar gesture like a context-menu
+// click), then best-effort try to surface it, with a toolbar badge as the
+// guaranteed-visible fallback. These payloads are transient hand-offs (not
+// conversation memory), so chrome.storage.session — scoped to the current
+// tab ID for the current browser session — is the right store for them,
+// unlike the URL-keyed, chrome.storage.local conversation history above.
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "askAboutSelection",
+      title: 'Ask AI about "%s"',
+      contexts: ["selection"],
+    });
+    chrome.contextMenus.create({
+      id: "translateToBangla",
+      title: 'Translate "%s" to Bangla',
+      contexts: ["selection"],
+    });
+  });
+});
+
+async function surfaceChatUi(tabId) {
+  try {
+    await chrome.sidePanel.open({ tabId });
+  } catch {
+    try {
+      await chrome.action.openPopup();
+    } catch {
+      // Neither surface could be opened programmatically; the badge
+      // below is the fallback the user can act on manually.
+    }
+  }
+  await chrome.action.setBadgeText({ tabId, text: "1" });
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: "#2563eb" });
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!info.selectionText || !tab?.id) return;
+  const selection = info.selectionText.trim();
+
+  if (info.menuItemId === "askAboutSelection") {
+    const prefill = `Regarding the following selected text:\n"${selection}"\n\nMy question: `;
+    await chrome.storage.session.set({ [`pendingSelection_${tab.id}`]: prefill });
+    await surfaceChatUi(tab.id);
+  } else if (info.menuItemId === "translateToBangla") {
+    const question =
+      `Translate the following text to Bangla (Bengali). ` +
+      `Respond with only the Bangla translation, nothing else:\n\n"${selection}"`;
+    await chrome.storage.session.set({ [`pendingTranslation_${tab.id}`]: question });
+    await surfaceChatUi(tab.id);
+  }
 });

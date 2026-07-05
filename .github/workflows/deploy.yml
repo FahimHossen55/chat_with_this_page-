@@ -10,9 +10,6 @@ on:
     tags:
       - "v*.*.*"
 
-env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/chatwithpage-backend
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -24,7 +21,14 @@ jobs:
 
       - name: Compute tags
         id: meta
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
+          # Strip any whitespace (e.g. a trailing newline from how the
+          # secret was pasted in) — an unstripped value here silently
+          # breaks the "echo ... >> $GITHUB_OUTPUT" file-command format.
+          DOCKERHUB_USER="$(printf '%s' "${DOCKERHUB_USERNAME}" | tr -d '[:space:]')"
+          IMAGE_NAME="${DOCKERHUB_USER}/chatwithpage-backend"
           SHA_TAG="${GITHUB_SHA::7}"
           echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
           TAGS="${IMAGE_NAME}:${SHA_TAG},${IMAGE_NAME}:latest"
