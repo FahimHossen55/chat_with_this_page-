@@ -153,6 +153,474 @@ closeGithubMenuBtnEl.addEventListener("click", () => {
   githubMenuEl.style.display = "none";
 });
 
+// ─── YouTube / PDF / Smart Search Elements ───────────────────────────────────
+const youtubeModeBtn   = document.getElementById("youtubeModeBtn");
+const youtubeMenuEl    = document.getElementById("youtubeMenu");
+const closeYoutubeBtn  = document.getElementById("closeYoutubeMenuBtn");
+const youtubeActionsGridEl = document.getElementById("youtubeActionsGrid");
+
+const pdfModeBtnEl     = document.getElementById("pdfModeBtn");
+const pdfMenuEl        = document.getElementById("pdfMenu");
+const closePdfBtn      = document.getElementById("closePdfMenuBtn");
+const pdfActionsGridEl = document.getElementById("pdfActionsGrid");
+
+const smartSearchBtnEl       = document.getElementById("smartSearchBtn");
+const smartSearchPanelEl     = document.getElementById("smartSearchPanel");
+const closeSmartSearchBtnEl  = document.getElementById("closeSmartSearchBtn");
+const smartSearchInputEl     = document.getElementById("smartSearchInput");
+const smartSearchSubmitBtnEl = document.getElementById("smartSearchSubmitBtn");
+const smartSearchStatusEl    = document.getElementById("smartSearchStatus");
+
+// ─── URL Detection Helpers ────────────────────────────────────────────────────
+function isYouTubeUrl(urlStr) {
+  if (!urlStr) return false;
+  try {
+    const url = new URL(urlStr);
+    return (
+      (url.hostname === "www.youtube.com" || url.hostname === "youtube.com") &&
+      url.searchParams.has("v")
+    );
+  } catch { return false; }
+}
+
+function isPdfUrl(urlStr) {
+  if (!urlStr) return false;
+  const lower = urlStr.toLowerCase();
+  const title = (typeof pageTitleEl !== "undefined" ? pageTitleEl.textContent : "").toLowerCase();
+  try {
+    const path = new URL(urlStr).pathname.toLowerCase();
+    if (path.endsWith(".pdf") || path.includes("/pdf/") || path.includes("/pdfviewer/")) return true;
+  } catch {}
+  if (lower.includes(".pdf?") || lower.includes(".pdf#")) return true;
+  if (lower.startsWith("file://") && lower.includes(".pdf")) return true;
+  if (title.endsWith(".pdf") || title.includes("pdf reader") || title.includes("pdf viewer")) return true;
+  if (lower.includes("ieeexplore.ieee.org/stamp/stamp.jsp")) return true;
+  if (lower.includes("file=") && lower.includes(".pdf")) return true;
+  return false;
+}
+
+// ─── YouTube Actions ──────────────────────────────────────────────────────────
+const YOUTUBE_ACTIONS = [
+  { id: "summarize-video",    label: "Summarize video",      icon: "📋" },
+  { id: "generate-notes",     label: "Generate notes",       icon: "📝" },
+  { id: "generate-quiz",      label: "Generate quiz",        icon: "❓" },
+  { id: "extract-timestamps", label: "Extract timestamps",   icon: "⏱️" },
+  { id: "find-moments",       label: "Find key moments",     icon: "💡" },
+  { id: "explain-code",       label: "Explain code shown",   icon: "💻" },
+];
+
+// ─── PDF Actions ──────────────────────────────────────────────────────────────
+const PDF_ACTIONS = [
+  { id: "summarize-pdf",      label: "Summarize PDF",        icon: "📋" },
+  { id: "search-pdf",         label: "Search PDF",           icon: "🔍" },
+  { id: "explain-equations",  label: "Explain equations",    icon: "🔬" },
+  { id: "flashcards",         label: "Generate flashcards",  icon: "🃏" },
+  { id: "extract-tables",     label: "Extract tables",       icon: "📊" },
+  { id: "citation",           label: "Citation & Reference",  icon: "📚" },
+];
+
+// ─── YouTube Transcript Fetching ─────────────────────────────────────────────
+async function getYouTubeTranscript(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: () => {
+        const player = document.getElementById("movie_player");
+        let playerResponse = null;
+        if (player && typeof player.getPlayerResponse === "function") {
+          playerResponse = player.getPlayerResponse();
+        } else {
+          const watchFlexy = document.querySelector("ytd-watch-flexy");
+          if (watchFlexy && watchFlexy.playerData) {
+            playerResponse = watchFlexy.playerData;
+          } else {
+            playerResponse = window.ytInitialPlayerResponse || null;
+          }
+        }
+        if (!playerResponse) return null;
+        return playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+      }
+    });
+
+    const captionTracks = result?.result;
+    if (!captionTracks || captionTracks.length === 0) {
+      throw new Error("No captions or transcripts available for this video.");
+    }
+
+    let track = captionTracks.find(t => t.languageCode === "en") || captionTracks[0];
+    if (!track || !track.baseUrl) throw new Error("No transcript URL found.");
+
+    // Inject content script first so messaging works even after extension reload
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+
+    const fetchRes = await chrome.tabs.sendMessage(tabId, {
+      type: "FETCH_YOUTUBE_TRANSCRIPT",
+      url: track.baseUrl
+    });
+
+    if (!fetchRes) throw new Error("Failed to communicate with YouTube page content script.");
+    if (fetchRes.error) throw new Error(`Fetch error inside tab: ${fetchRes.error}`);
+    const xmlText = fetchRes.xmlText;
+    if (!xmlText) throw new Error("Transcript response is empty.");
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, "text/xml");
+    const textNodes = doc.getElementsByTagName("text");
+    if (textNodes.length === 0) throw new Error("Transcript XML contained no text nodes.");
+
+    const lines = [];
+    for (let i = 0; i < textNodes.length; i++) {
+      const node = textNodes[i];
+      const text = node.textContent
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+      if (!text) continue;
+      const startSec = Math.floor(parseFloat(node.getAttribute("start") || "0"));
+      const mm = Math.floor(startSec / 60);
+      const ss = startSec % 60;
+      lines.push({ time: startSec * 1000, timestamp: `[${mm}:${ss.toString().padStart(2,"0")}]`, text });
+    }
+    return lines;
+  } catch (err) {
+    throw new Error("YouTube Transcript Error: " + err.message);
+  }
+}
+
+// ─── PDF Text Extraction ──────────────────────────────────────────────────────
+async function getPdfText(pdfUrl) {
+  try {
+    if (pdfUrl.startsWith("file://")) {
+      try { await fetch(pdfUrl); } catch {
+        throw new Error("Cannot access local file. Go to chrome://extensions → Chat With This Page → Details → enable 'Allow access to file URLs'.");
+      }
+    }
+    if (typeof pdfjsLib === "undefined") {
+      throw new Error("PDF.js library not loaded. Try reloading the extension.");
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
+
+    let targetUrl = pdfUrl;
+    if (pdfUrl.includes("ieeexplore.ieee.org/stamp/stamp.jsp")) {
+      targetUrl = pdfUrl.replace("/stamp/stamp.jsp", "/stampPDF/getPDF.jsp");
+    } else if (pdfUrl.includes("file=") && pdfUrl.includes(".pdf")) {
+      const m = pdfUrl.match(/file=([^&]+)/);
+      if (m && m[1]) targetUrl = decodeURIComponent(m[1]);
+    }
+
+    const loadingTask = pdfjsLib.getDocument(targetUrl);
+    const pdf = await loadingTask.promise;
+    let fullText = "";
+    const maxPages = Math.min(pdf.numPages, 100);
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent();
+      const pageText = tc.items.map(item => item.str).join(" ");
+      fullText += `--- Page ${i} ---\n${pageText.trim()}\n\n`;
+    }
+    if (pdf.numPages > 100) fullText += "\n[... PDF truncated beyond page 100 ...]";
+    return { text: fullText.trim(), pagesCount: pdf.numPages };
+  } catch (err) {
+    throw new Error("PDF Extraction Error: " + err.message);
+  }
+}
+
+// ─── Backend SSE Streaming for mode actions ───────────────────────────────────
+async function streamModeQuestion(question, contextText) {
+  addMessage("user", question);
+  const shouldStick = isNearBottom();
+  typingEl = showTyping();
+  streamingForTabId = activeTabId;
+  setSending(true);
+
+  const backendUrl = await (async () => {
+    const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+    return backendUrl || "http://localhost:8000";
+  })();
+  const { model } = await chrome.storage.sync.get("model");
+  const resolvedModel = model || "llama-3.1-8b-instant";
+
+  if (!port) connectPort();
+  port.postMessage({
+    type: "ASK",
+    tabId: activeTabId,
+    question,
+    context: contextText
+  });
+}
+
+// ─── YouTube Action Handler ───────────────────────────────────────────────────
+async function handleYouTubeAction(actionId) {
+  youtubeMenuEl.style.display = "none";
+
+  let pdfUrlInput = null;
+  if (!isYouTubeUrl(activeTabUrl)) {
+    pdfUrlInput = prompt("YouTube Mode is active, but this page is not a YouTube video.\nEnter a YouTube video URL:", "https://www.youtube.com/watch?v=");
+    if (!pdfUrlInput) return;
+  }
+
+  const statusMsg = addMessage("user", `⏳ Loading YouTube transcript…`);
+  let transcript;
+  try {
+    transcript = await getYouTubeTranscript(activeTabId);
+  } catch (err) {
+    statusMsg.remove();
+    addMessage("error", err.message);
+    setSending(false);
+    return;
+  }
+  statusMsg.remove();
+
+  const transcriptText = transcript.map(l => `${l.timestamp} ${l.text}`).join("\n");
+  const contextText = `[YouTube Video Transcript]\n${transcriptText}`;
+
+  const prompts = {
+    "summarize-video":    "Summarize this YouTube video in detail. Cover the main points, arguments, and conclusions.",
+    "generate-notes":     "Generate comprehensive study notes from this YouTube video transcript. Use headings, bullet points and key terms.",
+    "generate-quiz":      "Generate a 10-question quiz based on this YouTube video. Include multiple-choice and short-answer questions with answers.",
+    "extract-timestamps": "Extract the most important timestamps from this transcript. For each timestamp provide the time and a brief description of what's discussed.",
+    "find-moments":       "Identify the 5-10 most important and insightful moments in this video. Explain why each is significant.",
+    "explain-code":       "Identify and explain any code, algorithms, or technical concepts shown or discussed in this video transcript.",
+  };
+
+  const question = prompts[actionId] || "Analyze this YouTube video transcript.";
+  streamModeQuestion(question, contextText);
+}
+
+// ─── PDF Action Handler ───────────────────────────────────────────────────────
+async function handlePdfAction(actionId) {
+  pdfMenuEl.style.display = "none";
+
+  let pdfUrl = activeTabUrl;
+  if (!isPdfUrl(activeTabUrl)) {
+    const input = prompt(
+      "PDF Mode is active, but this page is not a PDF file. Enter a PDF document URL:",
+      "https://example.com/document.pdf"
+    );
+    if (!input) return;
+    pdfUrl = input.trim();
+  }
+
+  addMessage("user", `⏳ Loading PDF…`);
+  let pdfData;
+  try {
+    pdfData = await getPdfText(pdfUrl);
+  } catch (err) {
+    messagesEl.querySelector(".msg-row:last-child")?.remove();
+    addMessage("error", err.message);
+    setSending(false);
+    return;
+  }
+  messagesEl.querySelector(".msg-row:last-child")?.remove();
+
+  const contextText = `[PDF Document — ${pdfData.pagesCount} pages]\n${pdfData.text}`;
+
+  const prompts = {
+    "summarize-pdf":     "Provide a comprehensive summary of this PDF document. Cover the main topics, findings, and conclusions.",
+    "search-pdf":        "List the key concepts, terms, and topics in this document with brief explanations and page references.",
+    "explain-equations": "Identify and explain all mathematical equations, formulas, and technical notation in this document in plain language.",
+    "flashcards":        "Create 8 study flashcards (Q&A format) based on the most important content in this document.",
+    "extract-tables":    "Extract and present all tables, figures, and structured data from this document in a clear format.",
+    "citation":          "Generate proper citations for this document in APA, MLA, and BibTeX formats.",
+  };
+
+  const question = prompts[actionId] || "Analyze this PDF document.";
+  streamModeQuestion(question, contextText);
+}
+
+// ─── Smart Search Handler ─────────────────────────────────────────────────────
+async function executeSmartSearch(query) {
+  if (!query || !activeTabId || !activeTabUrl) return;
+  smartSearchStatusEl.style.display = "block";
+  smartSearchStatusEl.textContent = "Analyzing page content…";
+  smartSearchSubmitBtnEl.disabled = true;
+
+  try {
+    let pageContent = "";
+    if (isPdfUrl(activeTabUrl)) {
+      const pdfData = await getPdfText(activeTabUrl);
+      pageContent = pdfData.text;
+    } else {
+      await chrome.scripting.executeScript({ target: { tabId: activeTabId }, files: ["content.js"] });
+      const page = await chrome.tabs.sendMessage(activeTabId, { type: "EXTRACT_PAGE_TEXT" });
+      pageContent = page?.content || "";
+    }
+
+    if (!pageContent) throw new Error("Could not read any text content on this page.");
+
+    const systemPrompt =
+      "You are a precise search assistant.\n" +
+      "Given a user's question, extract the EXACT sentence or short paragraph from the provided page content that best answers it.\n" +
+      "Return ONLY that exact verbatim text excerpt — nothing else. No intro, no quotes.";
+
+    const backendUrl = await (async () => {
+      const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+      return backendUrl || "http://localhost:8000";
+    })();
+    const { model } = await chrome.storage.sync.get("model");
+    const resolvedModel = model || "llama-3.1-8b-instant";
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Page content:\n${pageContent.slice(0, 15000)}\n\nUser question: ${query}` }
+    ];
+
+    const res = await fetch(`${backendUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: resolvedModel, messages, stream: true })
+    });
+
+    let snippet = "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") break;
+        try {
+          const delta = JSON.parse(data).choices?.[0]?.delta?.content || "";
+          snippet += delta;
+        } catch {}
+      }
+    }
+    snippet = snippet.trim();
+
+    if (!snippet) throw new Error("Could not locate a matching section on the page.");
+
+    smartSearchStatusEl.textContent = `Found: "${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}" — scrolling there…`;
+
+    // Scroll & highlight in the active tab
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: (targetText) => {
+        const walker = document.createTreeWalker(
+          document.body, NodeFilter.SHOW_TEXT, null
+        );
+        let node;
+        const needle = targetText.slice(0, 60).toLowerCase();
+        while ((node = walker.nextNode())) {
+          if (node.nodeValue.toLowerCase().includes(needle)) {
+            const el = node.parentElement;
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              const orig = el.style.cssText;
+              el.style.transition = "background 0.3s";
+              el.style.background = "#fef08a";
+              setTimeout(() => { el.style.cssText = orig; }, 2500);
+              break;
+            }
+          }
+        }
+      },
+      args: [snippet]
+    });
+
+  } catch (err) {
+    smartSearchStatusEl.textContent = `Error: ${err.message}`;
+  } finally {
+    smartSearchSubmitBtnEl.disabled = false;
+  }
+}
+
+// ─── YouTube Menu Listeners ───────────────────────────────────────────────────
+if (youtubeModeBtn) {
+  youtubeModeBtn.addEventListener("click", () => {
+    const open = youtubeMenuEl.style.display !== "none" && youtubeMenuEl.style.display !== "";
+    if (open) {
+      youtubeMenuEl.style.display = "none";
+    } else {
+      // Populate action grid
+      youtubeActionsGridEl.innerHTML = "";
+      YOUTUBE_ACTIONS.forEach(action => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "github-action-card";
+        btn.innerHTML = `<span class="action-icon">${action.icon}</span><span class="action-label">${action.label}</span>`;
+        btn.addEventListener("click", () => handleYouTubeAction(action.id));
+        youtubeActionsGridEl.appendChild(btn);
+      });
+      // Close other menus
+      githubMenuEl.style.display = "none";
+      pdfMenuEl.style.display = "none";
+      smartSearchPanelEl.style.display = "none";
+      youtubeMenuEl.style.display = "flex";
+    }
+  });
+}
+if (closeYoutubeBtn) {
+  closeYoutubeBtn.addEventListener("click", () => { youtubeMenuEl.style.display = "none"; });
+}
+
+// ─── PDF Menu Listeners ───────────────────────────────────────────────────────
+if (pdfModeBtnEl) {
+  pdfModeBtnEl.addEventListener("click", () => {
+    const open = pdfMenuEl.style.display !== "none" && pdfMenuEl.style.display !== "";
+    if (open) {
+      pdfMenuEl.style.display = "none";
+    } else {
+      // Populate action grid
+      pdfActionsGridEl.innerHTML = "";
+      PDF_ACTIONS.forEach(action => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "github-action-card";
+        btn.innerHTML = `<span class="action-icon">${action.icon}</span><span class="action-label">${action.label}</span>`;
+        btn.addEventListener("click", () => handlePdfAction(action.id));
+        pdfActionsGridEl.appendChild(btn);
+      });
+      // Close other menus
+      githubMenuEl.style.display = "none";
+      youtubeMenuEl.style.display = "none";
+      smartSearchPanelEl.style.display = "none";
+      pdfMenuEl.style.display = "flex";
+    }
+  });
+}
+if (closePdfBtn) {
+  closePdfBtn.addEventListener("click", () => { pdfMenuEl.style.display = "none"; });
+}
+
+// ─── Smart Search Listeners ───────────────────────────────────────────────────
+if (smartSearchBtnEl) {
+  smartSearchBtnEl.addEventListener("click", () => {
+    const open = smartSearchPanelEl.style.display !== "none" && smartSearchPanelEl.style.display !== "";
+    if (open) {
+      smartSearchPanelEl.style.display = "none";
+    } else {
+      githubMenuEl.style.display = "none";
+      youtubeMenuEl.style.display = "none";
+      pdfMenuEl.style.display = "none";
+      smartSearchStatusEl.style.display = "none";
+      smartSearchStatusEl.textContent = "";
+      smartSearchPanelEl.style.display = "flex";
+      smartSearchInputEl.focus();
+    }
+  });
+}
+if (closeSmartSearchBtnEl) {
+  closeSmartSearchBtnEl.addEventListener("click", () => { smartSearchPanelEl.style.display = "none"; });
+}
+if (smartSearchSubmitBtnEl) {
+  smartSearchSubmitBtnEl.addEventListener("click", () => {
+    const q = smartSearchInputEl.value.trim();
+    if (q) executeSmartSearch(q);
+  });
+}
+if (smartSearchInputEl) {
+  smartSearchInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const q = smartSearchInputEl.value.trim();
+      if (q) executeSmartSearch(q);
+    }
+  });
+}
+
 // Must match background.js's scheme exactly — conversation history is
 // keyed by (normalized) page URL in chrome.storage.local, not by tab ID,
 // so it survives tab close/reopen and full browser restarts.
@@ -378,16 +846,22 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
   headerEl.classList.remove("scrolled");
   updateScrollBottomBtn();
 
-  // Hide GitHub menu overlay on tab load
+  // Hide all overlays on tab change
   githubMenuEl.style.display = "none";
+  if (youtubeMenuEl) youtubeMenuEl.style.display = "none";
+  if (pdfMenuEl) pdfMenuEl.style.display = "none";
+  if (smartSearchPanelEl) smartSearchPanelEl.style.display = "none";
 
-  // Detect GitHub page and toggle button visibility
+  // GitHub button — only on GitHub pages
   const gitContext = parseGitHubUrl(tabUrl);
-  if (gitContext) {
-    githubModeBtnEl.style.display = "inline-flex";
-  } else {
-    githubModeBtnEl.style.display = "none";
-  }
+  githubModeBtnEl.style.display = gitContext ? "inline-flex" : "none";
+
+  // YouTube button — always visible so you can load a YouTube URL manually
+  if (youtubeModeBtn) youtubeModeBtn.style.display = "inline-flex";
+  // PDF button — always visible so you can paste a PDF URL manually
+  if (pdfModeBtnEl) pdfModeBtnEl.style.display = "inline-flex";
+  // Smart Search — always visible
+  if (smartSearchBtnEl) smartSearchBtnEl.style.display = "inline-flex";
 
   if (tabId) {
     if (tabUrl) await loadHistory(tabUrl);
