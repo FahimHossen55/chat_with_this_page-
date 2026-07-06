@@ -185,15 +185,76 @@ async function streamChat(port, tabId, question, extraContext) {
   port.postMessage({ type: "DONE" });
 }
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "chat") return;
+async function streamAssistant(port, systemPrompt, promptText) {
+  const [backendUrl, model] = await Promise.all([
+    getBackendUrl(),
+    getModel(),
+  ]);
 
-  port.onMessage.addListener((message) => {
-    if (message?.type !== "ASK") return;
-    streamChat(port, message.tabId, message.question, message.context).catch((err) => {
-      port.postMessage({ type: "ERROR", message: err.message || String(err) });
-    });
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: promptText },
+  ];
+
+  const response = await fetch(`${backendUrl}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "groq", model, messages, stream: true }),
   });
+
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Backend error ${response.status}: ${detail || response.statusText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine.startsWith("data:")) continue;
+      const data = trimmedLine.slice(5).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.choices?.[0]?.delta?.content || "";
+        if (delta) {
+          port.postMessage({ type: "CHUNK", delta });
+        }
+      } catch {
+        // ignore malformed SSE lines
+      }
+    }
+  }
+
+  port.postMessage({ type: "DONE" });
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "chat") {
+    port.onMessage.addListener((message) => {
+      if (message?.type !== "ASK") return;
+      streamChat(port, message.tabId, message.question, message.context).catch((err) => {
+        port.postMessage({ type: "ERROR", message: err.message || String(err) });
+      });
+    });
+  } else if (port.name === "assistant") {
+    port.onMessage.addListener((message) => {
+      if (message?.type !== "ASK_ASSISTANT") return;
+      streamAssistant(port, message.systemPrompt, message.promptText).catch((err) => {
+        port.postMessage({ type: "ERROR", message: err.message || String(err) });
+      });
+    });
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -540,6 +601,16 @@ chrome.runtime.onInstalled.addListener(() => {
       title: 'Translate "%s" to Bangla',
       contexts: ["selection"],
     });
+    chrome.contextMenus.create({
+      id: "explainSelectionAssistant",
+      title: '✨ Explain Selection',
+      contexts: ["selection"],
+    });
+    chrome.contextMenus.create({
+      id: "translateSelectionAssistant",
+      title: '🌐 Translate Selection',
+      contexts: ["selection"],
+    });
   });
 });
 
@@ -572,5 +643,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       `Respond with only the Bangla translation, nothing else:\n\n"${selection}"`;
     await chrome.storage.session.set({ [`pendingTranslation_${tab.id}`]: question });
     await surfaceChatUi(tab.id);
+  } else if (info.menuItemId === "explainSelectionAssistant" || info.menuItemId === "translateSelectionAssistant") {
+    const action = info.menuItemId === "explainSelectionAssistant" ? "explain" : "translate";
+    chrome.tabs.sendMessage(tab.id, { type: "CONTEXT_MENU_ACTION", action }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn("Could not communicate with content script. Tab may not support content scripts.", chrome.runtime.lastError);
+      }
+    });
   }
 });

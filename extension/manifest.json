@@ -22,6 +22,17 @@
       "js": ["github.js"],
       "css": ["github.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["assistant.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assistant.css"],
+      "matches": ["http://*/*", "https://*/*"]
     }
   ],
   "side_panel": {

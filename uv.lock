@@ -1,0 +1,19 @@
+version = 1
+revision = 3
+requires-python = ">=3.11"
+
+[manifest]
+members = [
+    "backend",
+    "chat-with-this-page",
+]
+
+[[package]]
+name = "backend"
+version = "0.1.0"
+source = { virtual = "backend" }
+
+[[package]]
+name = "chat-with-this-page"
+version = "0.1.0"
+source = { virtual = "." }
