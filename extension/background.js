@@ -117,7 +117,7 @@ async function streamChat(port, tabId, question, extraContext) {
     // API-fetched repo data here — the plain page text above rarely covers
     // things like the full file tree or a manifest file's contents.
     (extraContext
-      ? `\n\nAdditional context fetched from the GitHub API for this request:\n${extraContext}`
+      ? `\n\nAdditional context for this request:\n${extraContext}`
       : "");
 
   const messages = [
@@ -464,31 +464,58 @@ async function buildGithubAction({ action, owner, repo, ref, path, issueNumber, 
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "GITHUB_MODE_ACTION") return;
-  const tabId = sender.tab?.id || message.tabId;
-  if (!tabId) {
-    sendResponse({ ok: false, error: "No active tab detected." });
-    return;
+  if (message?.type === "GITHUB_MODE_ACTION") {
+    const tabId = sender.tab?.id || message.tabId;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab detected." });
+      return;
+    }
+
+    (async () => {
+      try {
+        const { question, context } = await buildGithubAction(message);
+        if (sender.tab?.id) {
+          await chrome.storage.session.set({
+            [`pendingGithubAction_${tabId}`]: { question, context },
+          });
+          await surfaceChatUi(tabId);
+          sendResponse({ ok: true });
+        } else {
+          sendResponse({ ok: true, question, context });
+        }
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || String(err) });
+      }
+    })();
+
+    return true; // keep the message channel open for the async work above
   }
 
-  (async () => {
-    try {
-      const { question, context } = await buildGithubAction(message);
-      if (sender.tab?.id) {
-        await chrome.storage.session.set({
-          [`pendingGithubAction_${tabId}`]: { question, context },
-        });
-        await surfaceChatUi(tabId);
-        sendResponse({ ok: true });
-      } else {
-        sendResponse({ ok: true, question, context });
-      }
-    } catch (err) {
-      sendResponse({ ok: false, error: err.message || String(err) });
-    }
-  })();
-
-  return true; // keep the message channel open for the async work above
+  if (message?.type === "FETCH_PDF") {
+    fetch(message.url, { credentials: "include" })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
+        }
+        return res.arrayBuffer();
+      })
+      .then((buffer) => {
+        // Convert ArrayBuffer to base64 string safely
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        const len = bytes.byteLength;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
+        const base64 = btoa(binary);
+        sendResponse({ ok: true, data: base64 });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, error: err.message || String(err) });
+      });
+    return true; // keep the message channel open for the async fetch
+  }
 });
 
 // Context-menu actions ("Ask about selection", "Translate to Bangla"):

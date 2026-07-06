@@ -194,7 +194,7 @@ function resolvePdfTargetUrl(pdfUrl) {
   if (pdfUrl.startsWith("chrome-extension://") || pdfUrl.startsWith("moz-extension://")) {
     try {
       const url = new URL(pdfUrl);
-      const fileParam = url.searchParams.get("file");
+      const fileParam = url.searchParams.get("file") || url.searchParams.get("url");
       if (fileParam) {
         try { return decodeURIComponent(fileParam); } catch { return fileParam; }
       }
@@ -253,21 +253,48 @@ function normalizeForSearch(s) {
   return s.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function cleanSnippet(s) {
+  if (!s) return "";
+  let clean = s.trim();
+  // Strip starting/ending quotation marks if they are balanced or present
+  clean = clean.replace(/^["'“‘](.*)["'”’]$/s, "$1").trim();
+  // If it still starts/ends with quotes, strip them
+  clean = clean.replace(/^["'“‘]+/, "").replace(/["'”’]+$/, "").trim();
+  // Strip common prefixes
+  clean = clean.replace(/^(excerpt|snippet|answer|verbatim|text|quote):\s*/i, "").trim();
+  return clean;
+}
+
 // getPdfText() tags each page's extracted text with "--- Page N ---", so
 // finding which page a snippet came from is just locating which page-chunk
 // contains it (whitespace-insensitively, since pdf.js's item-joined text
 // doesn't always match the LLM's returned wording byte-for-byte).
 function findPdfPageForSnippet(pageContent, snippet) {
-  const needle = normalizeForSearch(snippet).slice(0, 80);
+  const cleaned = cleanSnippet(snippet);
+  const needle = normalizeForSearch(cleaned);
   if (!needle) return null;
   const chunks = pageContent.split(/--- Page (\d+) ---/);
   // String#split with a capturing group interleaves the results:
   // ["", "1", "<page 1 text>", "2", "<page 2 text>", ...]
+  
+  // Try 1: Match 80 characters
+  const needle80 = needle.slice(0, 80);
   for (let i = 1; i < chunks.length; i += 2) {
     const pageNum = parseInt(chunks[i], 10);
-    const text = chunks[i + 1] || "";
-    if (normalizeForSearch(text).includes(needle)) return pageNum;
+    const text = normalizeForSearch(chunks[i + 1] || "");
+    if (text.includes(needle80)) return pageNum;
   }
+
+  // Try 2: Fallback to match 40 characters
+  const needle40 = needle.slice(0, 40);
+  if (needle40.length >= 10) {
+    for (let i = 1; i < chunks.length; i += 2) {
+      const pageNum = parseInt(chunks[i], 10);
+      const text = normalizeForSearch(chunks[i + 1] || "");
+      if (text.includes(needle40)) return pageNum;
+    }
+  }
+
   return null;
 }
 
@@ -294,19 +321,51 @@ const PDF_ACTIONS = [
 // ─── PDF Text Extraction ──────────────────────────────────────────────────────
 async function getPdfText(pdfUrl) {
   try {
-    if (pdfUrl.startsWith("file://")) {
-      try { await fetch(pdfUrl); } catch {
-        throw new Error("Cannot access local file. Go to chrome://extensions → Chat With This Page → Details → enable 'Allow access to file URLs'.");
-      }
-    }
     if (typeof pdfjsLib === "undefined") {
       throw new Error("PDF.js library not loaded. Try reloading the extension.");
     }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
+    // Ensure the worker is loaded correctly from local URL in extension
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("pdf.worker.min.js");
 
     const targetUrl = resolvePdfTargetUrl(pdfUrl);
+    let pdfDataOptions;
 
-    const loadingTask = pdfjsLib.getDocument(targetUrl);
+    if (targetUrl.startsWith("file://")) {
+      try {
+        const res = await fetch(targetUrl);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        const buffer = await res.arrayBuffer();
+        pdfDataOptions = { data: new Uint8Array(buffer) };
+      } catch (err) {
+        throw new Error("Cannot access local file. Go to chrome://extensions → Chat With This Page → Details → enable 'Allow access to file URLs'.");
+      }
+    } else {
+      // Fetch via background script to bypass CORS
+      pdfDataOptions = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: "FETCH_PDF", url: targetUrl }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (response && response.ok) {
+            try {
+              // Convert base64 back to Uint8Array
+              const binaryString = atob(response.data);
+              const len = binaryString.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              resolve({ data: bytes });
+            } catch (err) {
+              reject(new Error("Failed to decode PDF data: " + err.message));
+            }
+          } else {
+            reject(new Error(response?.error || "Failed to fetch PDF in background"));
+          }
+        });
+      });
+    }
+
+    const loadingTask = pdfjsLib.getDocument(pdfDataOptions);
     const pdf = await loadingTask.promise;
     let fullText = "";
     const maxPages = Math.min(pdf.numPages, 100);
@@ -373,7 +432,12 @@ async function handlePdfAction(actionId) {
   }
   messagesEl.querySelector(".msg-row:last-child")?.remove();
 
-  const contextText = `[PDF Document — ${pdfData.pagesCount} pages]\n${pdfData.text}`;
+  const maxContextChars = 15000;
+  let pdfText = pdfData.text || "";
+  if (pdfText.length > maxContextChars) {
+    pdfText = pdfText.slice(0, maxContextChars) + "\n\n[... PDF content truncated to fit token limits ...]";
+  }
+  const contextText = `[PDF Document — ${pdfData.pagesCount} pages]\n${pdfText}`;
 
   const prompts = {
     "summarize-pdf":     "Provide a comprehensive summary of this PDF document. Cover the main topics, findings, and conclusions.",
@@ -471,17 +535,12 @@ async function executeSmartSearch(query) {
 
     if (!snippet) throw new Error("Could not locate a matching section on the page.");
 
-    let scrollResult = null;
+    const cleanedSnippet = cleanSnippet(snippet);
     let jumpedToPage = null;
+    let scrollResult = null;
 
     if (isPdfUrl(activeTabUrl)) {
-      // Can't inject a content script into a PDF viewer tab (native or a
-      // third-party extension's) to scroll/highlight, but every mainstream
-      // viewer honors the "#page=N" fragment convention — so jump the whole
-      // tab there instead. pageContent already carries "--- Page N ---"
-      // markers from getPdfText(), so we just need to find which page-chunk
-      // contains the snippet.
-      const pageNum = findPdfPageForSnippet(pageContent, snippet);
+      const pageNum = findPdfPageForSnippet(pageContent, cleanedSnippet);
       if (pageNum) {
         try {
           await chrome.tabs.update(activeTabId, { url: withPageFragment(activeTabUrl, pageNum) });
@@ -491,57 +550,210 @@ async function executeSmartSearch(query) {
         }
       }
     } else if (isScriptableTabUrl(activeTabUrl)) {
-      // Scroll & highlight in the active tab. Page text nodes can contain
-      // whatever raw whitespace/line-breaks the source HTML used, which
-      // won't match the single-spaced snippet the LLM returned unless both
-      // sides are normalized the same way first.
       try {
-        [scrollResult] = await chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
-          func: (targetText) => {
-            const normalize = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
-            const needle = normalize(targetText).slice(0, 60);
-            if (!needle) return false;
-            const walker = document.createTreeWalker(
-              document.body, NodeFilter.SHOW_TEXT, null
-            );
-            let node;
-            while ((node = walker.nextNode())) {
-              if (normalize(node.nodeValue).includes(needle)) {
-                const el = node.parentElement;
+        scrollResult = await triggerScrollOrJump(cleanedSnippet, pageContent);
+      } catch {}
+    }
+
+    const isSuccess = !!(scrollResult?.result || jumpedToPage);
+    const shortSnippet = cleanedSnippet.length > 180 ? cleanedSnippet.slice(0, 180) + "…" : cleanedSnippet;
+    
+    smartSearchStatusEl.style.display = "block";
+    smartSearchStatusEl.innerHTML = "";
+    
+    const card = document.createElement("div");
+    card.className = `search-result-card ${isSuccess ? 'success-match' : 'no-match'}`;
+    
+    const header = document.createElement("div");
+    header.className = "result-card-header";
+    
+    const badge = document.createElement("span");
+    badge.className = `result-badge ${isSuccess ? 'success' : 'error'}`;
+    badge.textContent = isSuccess ? "Match Found" : "Not Found";
+    header.appendChild(badge);
+    
+    if (isSuccess) {
+      const jumpBtn = document.createElement("button");
+      jumpBtn.type = "button";
+      jumpBtn.className = "result-jump-btn";
+      jumpBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg> Jump to section`;
+      jumpBtn.addEventListener("click", () => {
+        triggerScrollOrJump(cleanedSnippet, pageContent);
+      });
+      header.appendChild(jumpBtn);
+    }
+    card.appendChild(header);
+    
+    const body = document.createElement("div");
+    body.className = "result-card-body";
+    body.textContent = `"${shortSnippet}"`;
+    card.appendChild(body);
+    
+    const statusMsg = document.createElement("div");
+    statusMsg.style.fontSize = "11px";
+    statusMsg.style.marginTop = "6px";
+    statusMsg.style.color = "var(--text-muted)";
+    
+    if (scrollResult?.result) {
+      statusMsg.textContent = "Scrolled to and highlighted the matching section on the page.";
+    } else if (jumpedToPage) {
+      statusMsg.textContent = `Jumped to page ${jumpedToPage} of the PDF document.`;
+    } else {
+      statusMsg.textContent = isPdfUrl(activeTabUrl)
+        ? "Couldn't locate the exact page this text is on in the PDF."
+        : "Found the text, but couldn't locate it on the page to scroll to (it may be in a collapsed section or dynamic tab).";
+    }
+    card.appendChild(statusMsg);
+    
+    smartSearchStatusEl.appendChild(card);
+
+  } catch (err) {
+    smartSearchStatusEl.innerHTML = `<div class="search-result-card no-match"><div class="result-card-header"><span class="result-badge error">Error</span></div><div class="result-card-body" style="color: var(--error-text); font-style: normal;">${err.message}</div></div>`;
+  } finally {
+    smartSearchSubmitBtnEl.disabled = false;
+  }
+}
+
+async function triggerScrollOrJump(cleanedSnippet, pageContent) {
+  if (isPdfUrl(activeTabUrl)) {
+    const pageNum = findPdfPageForSnippet(pageContent, cleanedSnippet);
+    if (pageNum) {
+      try {
+        await chrome.tabs.update(activeTabId, { url: withPageFragment(activeTabUrl, pageNum) });
+        return { result: true };
+      } catch (err) {
+        console.error("PDF page jump failed", err);
+      }
+    }
+  } else if (isScriptableTabUrl(activeTabUrl)) {
+    try {
+      const [scrollResult] = await chrome.scripting.executeScript({
+        target: { tabId: activeTabId },
+        func: (targetText) => {
+          const cleanText = (s) => s.replace(/\s+/g, " ").trim();
+          const needle = cleanText(targetText);
+          if (!needle) return false;
+
+          const highlightElement = (el) => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            const orig = el.style.cssText;
+            el.style.transition = "background 0.3s";
+            el.style.background = "#fef08a";
+            setTimeout(() => { el.style.cssText = orig; }, 2500);
+          };
+
+          // 1. Try exact full needle
+          try {
+            window.getSelection().removeAllRanges();
+            let found = window.find(needle, false, false, true);
+            if (found) {
+              const sel = window.getSelection();
+              if (sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                const el = range.startContainer.parentElement;
                 if (el) {
-                  el.scrollIntoView({ behavior: "smooth", block: "center" });
-                  const orig = el.style.cssText;
-                  el.style.transition = "background 0.3s";
-                  el.style.background = "#fef08a";
-                  setTimeout(() => { el.style.cssText = orig; }, 2500);
+                  highlightElement(el);
                   return true;
                 }
               }
             }
-            return false;
-          },
-          args: [snippet]
-        });
-      } catch {
-        scrollResult = null;
-      }
+          } catch (e) {}
+
+          // 2. Try smaller clauses (split by punctuation / newlines)
+          const clauses = needle.split(/[\n:;•·\-\*]|\.\s+/)
+            .map(c => c.trim())
+            .filter(c => c.length >= 15);
+          for (const clause of clauses) {
+            try {
+              window.getSelection().removeAllRanges();
+              let found = window.find(clause, false, false, true);
+              if (found) {
+                const sel = window.getSelection();
+                if (sel.rangeCount > 0) {
+                  const range = sel.getRangeAt(0);
+                  const el = range.startContainer.parentElement;
+                  if (el) {
+                    highlightElement(el);
+                    return true;
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+
+          // 3. Try sliding windows of 4 words
+          const words = needle.split(/[\s:;().,!?\[\]{}""'']+/).filter(w => w.length >= 2);
+          for (let i = 0; i <= words.length - 4; i++) {
+            const windowText = words.slice(i, i + 4).join(" ");
+            if (windowText.length >= 15) {
+              try {
+                window.getSelection().removeAllRanges();
+                let found = window.find(windowText, false, false, true);
+                if (found) {
+                  const sel = window.getSelection();
+                  if (sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const el = range.startContainer.parentElement;
+                    if (el) {
+                      highlightElement(el);
+                      return true;
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+
+          // 4. Try sliding windows of 3 words
+          for (let i = 0; i <= words.length - 3; i++) {
+            const windowText = words.slice(i, i + 3).join(" ");
+            if (windowText.length >= 10) {
+              try {
+                window.getSelection().removeAllRanges();
+                let found = window.find(windowText, false, false, true);
+                if (found) {
+                  const sel = window.getSelection();
+                  if (sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const el = range.startContainer.parentElement;
+                    if (el) {
+                      highlightElement(el);
+                      return true;
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+
+          // 5. Fallback: TreeWalker to find single text node
+          const normalize = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
+          const searchLower = needle.toLowerCase().slice(0, 60);
+          if (!searchLower) return false;
+
+          const walker = document.createTreeWalker(
+            document.body, NodeFilter.SHOW_TEXT, null
+          );
+          let node;
+          while ((node = walker.nextNode())) {
+            if (normalize(node.nodeValue).includes(searchLower)) {
+              const el = node.parentElement;
+              if (el) {
+                highlightElement(el);
+                return true;
+              }
+            }
+          }
+          return false;
+        },
+        args: [cleanedSnippet]
+      });
+      return scrollResult;
+    } catch (err) {
+      console.error("Scriptable tab jump failed", err);
     }
-
-    const shortSnippet = `"${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}"`;
-    smartSearchStatusEl.textContent = scrollResult?.result
-      ? `Found: ${shortSnippet} — scrolled there.`
-      : jumpedToPage
-        ? `Found: ${shortSnippet} — jumped to page ${jumpedToPage}.`
-        : isPdfUrl(activeTabUrl)
-          ? `Found: ${shortSnippet} (couldn't determine which page it's on).`
-          : `Found: ${shortSnippet} — but couldn't locate it on the page to scroll to (it may be on a part of the page that hasn't rendered, e.g. behind a "load more" or a different tab/section).`;
-
-  } catch (err) {
-    smartSearchStatusEl.textContent = `Error: ${err.message}`;
-  } finally {
-    smartSearchSubmitBtnEl.disabled = false;
   }
+  return null;
 }
 
 // ─── PDF Menu Listeners ───────────────────────────────────────────────────────
@@ -913,7 +1125,7 @@ function autoResize() {
   questionEl.style.height = `${Math.min(questionEl.scrollHeight, 96)}px`;
 }
 
-function sendQuestion(question, context) {
+async function sendQuestion(question, context) {
   if (!question || !activeTabId) return;
 
   lastQuestion = question;
@@ -926,8 +1138,23 @@ function sendQuestion(question, context) {
   setSending(true);
   typingEl = showTyping();
 
+  let resolvedContext = context;
+  if (!resolvedContext && isPdfUrl(activeTabUrl)) {
+    try {
+      const pdfData = await getPdfText(activeTabUrl);
+      const maxContextChars = 15000;
+      let pdfText = pdfData.text || "";
+      if (pdfText.length > maxContextChars) {
+        pdfText = pdfText.slice(0, maxContextChars) + "\n\n[... PDF content truncated to fit token limits ...]";
+      }
+      resolvedContext = `[PDF Document — ${pdfData.pagesCount} pages]\n${pdfText}`;
+    } catch (err) {
+      console.error("Failed to extract PDF context for chat:", err);
+    }
+  }
+
   if (!port) connectPort();
-  port.postMessage({ type: "ASK", tabId: activeTabId, question, context });
+  port.postMessage({ type: "ASK", tabId: activeTabId, question, context: resolvedContext });
 }
 
 formEl.addEventListener("submit", (e) => {
