@@ -4,7 +4,8 @@
       "Bash(wsl.exe -d Ubuntu -e bash -lc \"cd /home/fahim/chat-with-this-page/backend && ls .venv/bin | head\")",
       "Bash(wsl.exe -d Ubuntu -e bash -lc \"cd /home/fahim/chat-with-this-page/backend && ./.venv/bin/python -m pip install -q -r requirements.txt -r requirements-dev.txt 2>&1 | tail -40\")",
       "Bash(node -e ' *)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(node /tmp/cwtp-test/test.mjs \"extension/popup.js\")"
     ]
   }
 }

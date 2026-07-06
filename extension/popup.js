@@ -172,23 +172,84 @@ const smartSearchSubmitBtnEl = document.getElementById("smartSearchSubmitBtn");
 const smartSearchStatusEl    = document.getElementById("smartSearchStatus");
 
 // ─── URL Detection Helpers ────────────────────────────────────────────────────
+// Only ordinary http(s) pages can have scripts injected into them — Chrome
+// rejects chrome.scripting.executeScript / chrome.tabs.sendMessage against
+// chrome://, another extension's chrome-extension://<their-id>/... pages
+// (e.g. a third-party PDF viewer rendering the current tab), the Chrome Web
+// Store, and file:// without the "Allow access to file URLs" toggle, with
+// "Cannot access a chrome-extension:// URL of different extension" or
+// similar — so callers must check this before attempting injection.
+function isScriptableTabUrl(urlStr) {
+  return /^https?:\/\//i.test(urlStr || "");
+}
+
 function isYouTubeUrl(urlStr) {
   if (!urlStr) return false;
   try {
     const url = new URL(urlStr);
-    return (
-      (url.hostname === "www.youtube.com" || url.hostname === "youtube.com") &&
-      url.searchParams.has("v")
-    );
+    const host = url.hostname.toLowerCase();
+    if (host === "youtu.be") return url.pathname.length > 1;
+    if (host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com") {
+      return url.searchParams.has("v");
+    }
+    return false;
   } catch { return false; }
+}
+
+// Many third-party "PDF viewer" extensions (Adobe Acrobat, Chrome's own
+// built-in viewer, etc.) open PDFs inside a chrome-extension:// page that
+// simply wraps the original document URL, e.g.
+//   chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://arxiv.org/pdf/1706.03762
+//   chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html?file=https%3A%2F%2F...
+// Feeding that wrapper URL straight to pdf.js's fetch causes "Unexpected
+// server response (0)" since it isn't a fetchable resource — we need to
+// pull the real document URL back out first.
+function resolvePdfTargetUrl(pdfUrl) {
+  if (pdfUrl.includes("ieeexplore.ieee.org/stamp/stamp.jsp")) {
+    return pdfUrl.replace("/stamp/stamp.jsp", "/stampPDF/getPDF.jsp");
+  }
+
+  if (pdfUrl.startsWith("chrome-extension://") || pdfUrl.startsWith("moz-extension://")) {
+    try {
+      const url = new URL(pdfUrl);
+      const fileParam = url.searchParams.get("file");
+      if (fileParam) {
+        try { return decodeURIComponent(fileParam); } catch { return fileParam; }
+      }
+    } catch {}
+
+    const embedded = pdfUrl.match(
+      /^(?:chrome|moz)-extension:\/\/[a-z0-9]+\/+(https?(?:%3[aA]|:)(?:%2[fF]|\/){2}.+)$/
+    );
+    if (embedded) {
+      let inner = embedded[1];
+      try { inner = decodeURIComponent(inner); } catch {}
+      return inner;
+    }
+  }
+
+  if (pdfUrl.includes("file=") && pdfUrl.includes(".pdf")) {
+    const m = pdfUrl.match(/file=([^&]+)/);
+    if (m && m[1]) {
+      try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+    }
+  }
+
+  return pdfUrl;
 }
 
 function isPdfUrl(urlStr) {
   if (!urlStr) return false;
-  const lower = urlStr.toLowerCase();
+  const candidate = resolvePdfTargetUrl(urlStr);
+  // Successfully unwrapped from a viewer-extension URL — treat as a PDF
+  // regardless of whether the underlying URL happens to end in ".pdf"
+  // (e.g. arxiv.org/pdf/1706.03762 has no extension at all).
+  if (candidate !== urlStr && /^https?:\/\//i.test(candidate)) return true;
+
+  const lower = candidate.toLowerCase();
   const title = (typeof pageTitleEl !== "undefined" ? pageTitleEl.textContent : "").toLowerCase();
   try {
-    const path = new URL(urlStr).pathname.toLowerCase();
+    const path = new URL(candidate).pathname.toLowerCase();
     if (path.endsWith(".pdf") || path.includes("/pdf/") || path.includes("/pdfviewer/")) return true;
   } catch {}
   if (lower.includes(".pdf?") || lower.includes(".pdf#")) return true;
@@ -300,13 +361,7 @@ async function getPdfText(pdfUrl) {
     }
     pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
 
-    let targetUrl = pdfUrl;
-    if (pdfUrl.includes("ieeexplore.ieee.org/stamp/stamp.jsp")) {
-      targetUrl = pdfUrl.replace("/stamp/stamp.jsp", "/stampPDF/getPDF.jsp");
-    } else if (pdfUrl.includes("file=") && pdfUrl.includes(".pdf")) {
-      const m = pdfUrl.match(/file=([^&]+)/);
-      if (m && m[1]) targetUrl = decodeURIComponent(m[1]);
-    }
+    const targetUrl = resolvePdfTargetUrl(pdfUrl);
 
     const loadingTask = pdfjsLib.getDocument(targetUrl);
     const pdf = await loadingTask.promise;
@@ -440,10 +495,14 @@ async function executeSmartSearch(query) {
     if (isPdfUrl(activeTabUrl)) {
       const pdfData = await getPdfText(activeTabUrl);
       pageContent = pdfData.text;
-    } else {
+    } else if (isScriptableTabUrl(activeTabUrl)) {
       await chrome.scripting.executeScript({ target: { tabId: activeTabId }, files: ["content.js"] });
       const page = await chrome.tabs.sendMessage(activeTabId, { type: "EXTRACT_PAGE_TEXT" });
       pageContent = page?.content || "";
+    } else {
+      throw new Error(
+        "Smart Search can't read this page — it's a browser-internal page or belongs to another extension."
+      );
     }
 
     if (!pageContent) throw new Error("Could not read any text content on this page.");
@@ -465,23 +524,38 @@ async function executeSmartSearch(query) {
       { role: "user", content: `Page content:\n${pageContent.slice(0, 15000)}\n\nUser question: ${query}` }
     ];
 
-    const res = await fetch(`${backendUrl}/v1/chat/completions`, {
+    // Must match the backend API background.js's streamChat uses — this
+    // backend doesn't implement the OpenAI-style /v1/chat/completions path.
+    const res = await fetch(`${backendUrl}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: resolvedModel, messages, stream: true })
+      body: JSON.stringify({ provider: "groq", model: resolvedModel, messages, stream: true })
     });
+
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Backend error ${res.status}: ${detail || res.statusText}`);
+    }
 
     let snippet = "";
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Split on newlines but hold back a possibly-incomplete trailing line
+      // until the next chunk arrives — a chunk boundary can land mid-line.
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
         try {
           const delta = JSON.parse(data).choices?.[0]?.delta?.content || "";
           snippet += delta;
@@ -492,33 +566,53 @@ async function executeSmartSearch(query) {
 
     if (!snippet) throw new Error("Could not locate a matching section on the page.");
 
-    smartSearchStatusEl.textContent = `Found: "${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}" — scrolling there…`;
-
-    // Scroll & highlight in the active tab
-    await chrome.scripting.executeScript({
-      target: { tabId: activeTabId },
-      func: (targetText) => {
-        const walker = document.createTreeWalker(
-          document.body, NodeFilter.SHOW_TEXT, null
-        );
-        let node;
-        const needle = targetText.slice(0, 60).toLowerCase();
-        while ((node = walker.nextNode())) {
-          if (node.nodeValue.toLowerCase().includes(needle)) {
-            const el = node.parentElement;
-            if (el) {
-              el.scrollIntoView({ behavior: "smooth", block: "center" });
-              const orig = el.style.cssText;
-              el.style.transition = "background 0.3s";
-              el.style.background = "#fef08a";
-              setTimeout(() => { el.style.cssText = orig; }, 2500);
-              break;
+    // Scroll & highlight in the active tab. Page text nodes can contain
+    // whatever raw whitespace/line-breaks the source HTML used, which won't
+    // match the single-spaced snippet the LLM returned unless both sides are
+    // normalized the same way first. Skipped entirely for PDFs and other
+    // non-scriptable pages — Chrome won't let us inject into a PDF viewer
+    // (native or another extension's) or a browser-internal page at all.
+    let scrollResult = null;
+    if (isScriptableTabUrl(activeTabUrl)) {
+      try {
+        [scrollResult] = await chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          func: (targetText) => {
+            const normalize = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
+            const needle = normalize(targetText).slice(0, 60);
+            if (!needle) return false;
+            const walker = document.createTreeWalker(
+              document.body, NodeFilter.SHOW_TEXT, null
+            );
+            let node;
+            while ((node = walker.nextNode())) {
+              if (normalize(node.nodeValue).includes(needle)) {
+                const el = node.parentElement;
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  const orig = el.style.cssText;
+                  el.style.transition = "background 0.3s";
+                  el.style.background = "#fef08a";
+                  setTimeout(() => { el.style.cssText = orig; }, 2500);
+                  return true;
+                }
+              }
             }
-          }
-        }
-      },
-      args: [snippet]
-    });
+            return false;
+          },
+          args: [snippet]
+        });
+      } catch {
+        scrollResult = null;
+      }
+    }
+
+    const shortSnippet = `"${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}"`;
+    smartSearchStatusEl.textContent = scrollResult?.result
+      ? `Found: ${shortSnippet} — scrolled there.`
+      : isPdfUrl(activeTabUrl)
+        ? `Found: ${shortSnippet} (scrolling to the exact spot isn't supported for PDF documents).`
+        : `Found: ${shortSnippet} — but couldn't locate it on the page to scroll to (it may be on a part of the page that hasn't rendered, e.g. behind a "load more" or a different tab/section).`;
 
   } catch (err) {
     smartSearchStatusEl.textContent = `Error: ${err.message}`;

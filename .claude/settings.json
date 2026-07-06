@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//tmp/cwtp-test2/**)",
+      "Read(///wsl.localhost/Ubuntu/tmp/cwtp-test2/**)",
+      "Bash(sed -i \"s/contextMenus: { removeAll\\(cb\\) { cb \\\\&\\\\& cb\\(\\); }, create\\(\\) {} },/contextMenus: { removeAll\\(cb\\) { cb \\\\&\\\\& cb\\(\\); }, create\\(\\) {}, onClicked: { addListener\\(\\) {} } },\\\\n    action: { setBadgeText: async \\(\\) => {}, setBadgeBackgroundColor: async \\(\\) => {} },\\\\n    sidePanel: { open: async \\(\\) => { throw new Error\\(\\\\\"no side panel in test\\\\\"\\); } },/\" /tmp/cwtp-test2/test-background.mjs *)",
+      "Bash(node --check extension/content.js)"
+    ],
+    "additionalDirectories": [
+      "\\tmp\\cwtp-test2"
+    ]
+  }
+}

@@ -63,12 +63,36 @@ async function appendPageHistory(url, question, answer) {
   await touchHistoryIndex(normalized);
 }
 
+// Only ordinary http(s) pages can be scripted — chrome://, other extensions'
+// chrome-extension://<their-id>/... pages (e.g. a third-party PDF viewer
+// rendering the active tab), the Chrome Web Store, and file:// without the
+// "Allow access to file URLs" toggle all reject executeScript/sendMessage.
+function isScriptableUrl(url) {
+  return /^https?:\/\//i.test(url || "");
+}
+
 async function extractPageContent(tabId) {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ["content.js"],
-  });
-  return chrome.tabs.sendMessage(tabId, { type: "EXTRACT_PAGE_TEXT" });
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const title = tab?.title || "";
+  const url = tab?.url || "";
+
+  if (!isScriptableUrl(url)) {
+    return { title, url, content: "", truncated: false, unreadable: true };
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"],
+    });
+    return await chrome.tabs.sendMessage(tabId, { type: "EXTRACT_PAGE_TEXT" });
+  } catch (err) {
+    // Tab navigated away, is otherwise protected, or belongs to another
+    // extension mid-flight — degrade gracefully instead of failing the
+    // whole request (PDF/YouTube/GitHub Mode already supply their own
+    // context separately via extraContext).
+    return { title, url, content: "", truncated: false, unreadable: true };
+  }
 }
 
 async function streamChat(port, tabId, question, extraContext) {
@@ -84,7 +108,11 @@ async function streamChat(port, tabId, question, extraContext) {
   const systemPrompt =
     `You are a helpful assistant answering questions about a webpage.\n` +
     `Page title: ${page.title}\nPage URL: ${page.url}\n\n` +
-    `Page content:\n${page.content}${page.truncated ? "\n[...page content truncated...]" : ""}` +
+    (page.unreadable
+      ? `[Page content could not be read directly — this is likely a PDF viewer, ` +
+        `a browser-internal page, or another extension's page. Rely on any ` +
+        `additional context supplied below instead.]`
+      : `Page content:\n${page.content}${page.truncated ? "\n[...page content truncated...]" : ""}`) +
     // GitHub Mode actions (see GITHUB_MODE_ACTION below) attach richer,
     // API-fetched repo data here — the plain page text above rarely covers
     // things like the full file tree or a manifest file's contents.
