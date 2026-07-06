@@ -153,12 +153,7 @@ closeGithubMenuBtnEl.addEventListener("click", () => {
   githubMenuEl.style.display = "none";
 });
 
-// ─── YouTube / PDF / Smart Search Elements ───────────────────────────────────
-const youtubeModeBtn   = document.getElementById("youtubeModeBtn");
-const youtubeMenuEl    = document.getElementById("youtubeMenu");
-const closeYoutubeBtn  = document.getElementById("closeYoutubeMenuBtn");
-const youtubeActionsGridEl = document.getElementById("youtubeActionsGrid");
-
+// ─── PDF / Smart Search Elements ──────────────────────────────────────────────
 const pdfModeBtnEl     = document.getElementById("pdfModeBtn");
 const pdfMenuEl        = document.getElementById("pdfMenu");
 const closePdfBtn      = document.getElementById("closePdfMenuBtn");
@@ -181,19 +176,6 @@ const smartSearchStatusEl    = document.getElementById("smartSearchStatus");
 // similar — so callers must check this before attempting injection.
 function isScriptableTabUrl(urlStr) {
   return /^https?:\/\//i.test(urlStr || "");
-}
-
-function isYouTubeUrl(urlStr) {
-  if (!urlStr) return false;
-  try {
-    const url = new URL(urlStr);
-    const host = url.hostname.toLowerCase();
-    if (host === "youtu.be") return url.pathname.length > 1;
-    if (host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com") {
-      return url.searchParams.has("v");
-    }
-    return false;
-  } catch { return false; }
 }
 
 // Many third-party "PDF viewer" extensions (Adobe Acrobat, Chrome's own
@@ -299,16 +281,6 @@ function withPageFragment(urlStr, pageNum) {
   }
 }
 
-// ─── YouTube Actions ──────────────────────────────────────────────────────────
-const YOUTUBE_ACTIONS = [
-  { id: "summarize-video",    label: "Summarize video",      icon: "📋" },
-  { id: "generate-notes",     label: "Generate notes",       icon: "📝" },
-  { id: "generate-quiz",      label: "Generate quiz",        icon: "❓" },
-  { id: "extract-timestamps", label: "Extract timestamps",   icon: "⏱️" },
-  { id: "find-moments",       label: "Find key moments",     icon: "💡" },
-  { id: "explain-code",       label: "Explain code shown",   icon: "💻" },
-];
-
 // ─── PDF Actions ──────────────────────────────────────────────────────────────
 const PDF_ACTIONS = [
   { id: "summarize-pdf",      label: "Summarize PDF",        icon: "📋" },
@@ -318,147 +290,6 @@ const PDF_ACTIONS = [
   { id: "extract-tables",     label: "Extract tables",       icon: "📊" },
   { id: "citation",           label: "Citation & Reference",  icon: "📚" },
 ];
-
-// ─── YouTube Transcript Fetching ─────────────────────────────────────────────
-function parseTranscriptXml(xmlText) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, "text/xml");
-  const textNodes = doc.getElementsByTagName("text");
-  const lines = [];
-  for (let i = 0; i < textNodes.length; i++) {
-    const node = textNodes[i];
-    const text = node.textContent
-      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-    if (!text) continue;
-    const startSec = Math.floor(parseFloat(node.getAttribute("start") || "0"));
-    const mm = Math.floor(startSec / 60);
-    const ss = startSec % 60;
-    lines.push({ time: startSec * 1000, timestamp: `[${mm}:${ss.toString().padStart(2,"0")}]`, text });
-  }
-  return lines;
-}
-
-async function getYouTubeTranscript(tabId) {
-  try {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: () => {
-        const player = document.getElementById("movie_player");
-        let playerResponse = null;
-        if (player && typeof player.getPlayerResponse === "function") {
-          playerResponse = player.getPlayerResponse();
-        } else {
-          const watchFlexy = document.querySelector("ytd-watch-flexy");
-          if (watchFlexy && watchFlexy.playerData) {
-            playerResponse = watchFlexy.playerData;
-          } else {
-            playerResponse = window.ytInitialPlayerResponse || null;
-          }
-        }
-        const captionTracks =
-          playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
-
-        // Also grab what's needed to call the same private "get_transcript"
-        // API that YouTube's own "Show transcript" button uses. The legacy
-        // /api/timedtext URLs in captionTracks[].baseUrl below increasingly
-        // come back as HTTP 200 with a zero-byte body — Google tightened
-        // anti-scraping on that endpoint and it now typically requires a
-        // session-bound Proof-of-Origin token a plain fetch doesn't have.
-        // This endpoint is what the real transcript panel depends on, so
-        // it's far less likely to be silently blocked.
-        let innertube = null;
-        try {
-          const apiKey = window.ytcfg?.get?.("INNERTUBE_API_KEY");
-          const context = window.ytcfg?.get?.("INNERTUBE_CONTEXT");
-          const panels = window.ytInitialData?.engagementPanels || [];
-          const panel = panels.find(
-            (p) =>
-              p?.engagementPanelSectionListRenderer?.panelIdentifier ===
-              "engagement-panel-searchable-transcript"
-          );
-          const params =
-            panel?.engagementPanelSectionListRenderer?.content?.continuationItemRenderer
-              ?.continuationEndpoint?.getTranscriptEndpoint?.params;
-          if (apiKey && context && params) innertube = { apiKey, context, params };
-        } catch {}
-
-        const videoId =
-          playerResponse?.videoDetails?.videoId ||
-          new URL(location.href).searchParams.get("v") ||
-          null;
-
-        return { captionTracks, innertube, videoId };
-      }
-    });
-
-    const { captionTracks, innertube, videoId } = result?.result || {};
-
-    // Inject content script first so messaging works even after extension reload
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-
-    // Attempt 1: YouTube's own get_transcript API, using whatever's already
-    // sitting in the live page's window.ytInitialData/ytcfg (fastest, no
-    // extra network round trip).
-    let innertubeError = null;
-    if (innertube) {
-      const viaApi = await chrome.tabs.sendMessage(tabId, {
-        type: "FETCH_YOUTUBE_TRANSCRIPT_V2",
-        ...innertube,
-      });
-      if (viaApi?.lines?.length) return viaApi.lines;
-      innertubeError = viaApi?.error || "empty response";
-    }
-
-    // Attempt 2: same API, but sourced from a fresh fetch of the watch page's
-    // own HTML instead of live in-page globals — YouTube's SPA navigation can
-    // leave window.ytInitialData stale or missing the transcript panel's
-    // continuation params for whatever video is *currently* loaded, which
-    // attempt 1 has no way to detect (it just looks empty/absent).
-    let watchPageError = null;
-    if (videoId) {
-      const viaHtml = await chrome.tabs.sendMessage(tabId, {
-        type: "FETCH_YOUTUBE_TRANSCRIPT_V3",
-        videoId,
-      });
-      if (viaHtml?.lines?.length) return viaHtml.lines;
-      watchPageError = viaHtml?.error || "empty response";
-    }
-
-    // Attempt 3: legacy caption-track XML.
-    if (!captionTracks || captionTracks.length === 0) {
-      throw new Error("No captions or transcripts available for this video.");
-    }
-    let track = captionTracks.find(t => t.languageCode === "en") || captionTracks[0];
-    if (!track || !track.baseUrl) throw new Error("No transcript URL found.");
-
-    const fetchRes = await chrome.tabs.sendMessage(tabId, {
-      type: "FETCH_YOUTUBE_TRANSCRIPT",
-      url: track.baseUrl
-    });
-
-    if (!fetchRes) throw new Error("Failed to communicate with YouTube page content script.");
-    if (fetchRes.error || !fetchRes.xmlText) {
-      const detail = fetchRes.error || "empty response";
-      const attempts = [
-        innertubeError && `live-page API: ${innertubeError}`,
-        watchPageError && `watch-page API: ${watchPageError}`,
-      ].filter(Boolean).join("; ");
-      throw new Error(
-        `${detail}${attempts ? ` (also tried — ${attempts})` : ""} — YouTube is likely ` +
-        `throttling/blocking transcript requests for this video right now. Confirm captions ` +
-        `exist via the video's own CC/"Show transcript" button, then try again in a moment.`
-      );
-    }
-
-    const lines = parseTranscriptXml(fetchRes.xmlText);
-    if (lines.length === 0) throw new Error("Transcript XML contained no text nodes.");
-    return lines;
-  } catch (err) {
-    throw new Error("YouTube Transcript Error: " + err.message);
-  }
-}
 
 // ─── PDF Text Extraction ──────────────────────────────────────────────────────
 async function getPdfText(pdfUrl) {
@@ -514,44 +345,6 @@ async function streamModeQuestion(question, contextText) {
     question,
     context: contextText
   });
-}
-
-// ─── YouTube Action Handler ───────────────────────────────────────────────────
-async function handleYouTubeAction(actionId) {
-  youtubeMenuEl.style.display = "none";
-
-  let pdfUrlInput = null;
-  if (!isYouTubeUrl(activeTabUrl)) {
-    pdfUrlInput = prompt("YouTube Mode is active, but this page is not a YouTube video.\nEnter a YouTube video URL:", "https://www.youtube.com/watch?v=");
-    if (!pdfUrlInput) return;
-  }
-
-  const statusMsg = addMessage("user", `⏳ Loading YouTube transcript…`);
-  let transcript;
-  try {
-    transcript = await getYouTubeTranscript(activeTabId);
-  } catch (err) {
-    statusMsg.remove();
-    addMessage("error", err.message);
-    setSending(false);
-    return;
-  }
-  statusMsg.remove();
-
-  const transcriptText = transcript.map(l => `${l.timestamp} ${l.text}`).join("\n");
-  const contextText = `[YouTube Video Transcript]\n${transcriptText}`;
-
-  const prompts = {
-    "summarize-video":    "Summarize this YouTube video in detail. Cover the main points, arguments, and conclusions.",
-    "generate-notes":     "Generate comprehensive study notes from this YouTube video transcript. Use headings, bullet points and key terms.",
-    "generate-quiz":      "Generate a 10-question quiz based on this YouTube video. Include multiple-choice and short-answer questions with answers.",
-    "extract-timestamps": "Extract the most important timestamps from this transcript. For each timestamp provide the time and a brief description of what's discussed.",
-    "find-moments":       "Identify the 5-10 most important and insightful moments in this video. Explain why each is significant.",
-    "explain-code":       "Identify and explain any code, algorithms, or technical concepts shown or discussed in this video transcript.",
-  };
-
-  const question = prompts[actionId] || "Analyze this YouTube video transcript.";
-  streamModeQuestion(question, contextText);
 }
 
 // ─── PDF Action Handler ───────────────────────────────────────────────────────
@@ -751,35 +544,6 @@ async function executeSmartSearch(query) {
   }
 }
 
-// ─── YouTube Menu Listeners ───────────────────────────────────────────────────
-if (youtubeModeBtn) {
-  youtubeModeBtn.addEventListener("click", () => {
-    const open = youtubeMenuEl.style.display !== "none" && youtubeMenuEl.style.display !== "";
-    if (open) {
-      youtubeMenuEl.style.display = "none";
-    } else {
-      // Populate action grid
-      youtubeActionsGridEl.innerHTML = "";
-      YOUTUBE_ACTIONS.forEach(action => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "github-action-card";
-        btn.innerHTML = `<span class="action-icon">${action.icon}</span><span class="action-label">${action.label}</span>`;
-        btn.addEventListener("click", () => handleYouTubeAction(action.id));
-        youtubeActionsGridEl.appendChild(btn);
-      });
-      // Close other menus
-      githubMenuEl.style.display = "none";
-      pdfMenuEl.style.display = "none";
-      smartSearchPanelEl.style.display = "none";
-      youtubeMenuEl.style.display = "flex";
-    }
-  });
-}
-if (closeYoutubeBtn) {
-  closeYoutubeBtn.addEventListener("click", () => { youtubeMenuEl.style.display = "none"; });
-}
-
 // ─── PDF Menu Listeners ───────────────────────────────────────────────────────
 if (pdfModeBtnEl) {
   pdfModeBtnEl.addEventListener("click", () => {
@@ -799,7 +563,6 @@ if (pdfModeBtnEl) {
       });
       // Close other menus
       githubMenuEl.style.display = "none";
-      youtubeMenuEl.style.display = "none";
       smartSearchPanelEl.style.display = "none";
       pdfMenuEl.style.display = "flex";
     }
@@ -817,7 +580,6 @@ if (smartSearchBtnEl) {
       smartSearchPanelEl.style.display = "none";
     } else {
       githubMenuEl.style.display = "none";
-      youtubeMenuEl.style.display = "none";
       pdfMenuEl.style.display = "none";
       smartSearchStatusEl.style.display = "none";
       smartSearchStatusEl.textContent = "";
@@ -1072,7 +834,6 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
 
   // Hide all overlays on tab change
   githubMenuEl.style.display = "none";
-  if (youtubeMenuEl) youtubeMenuEl.style.display = "none";
   if (pdfMenuEl) pdfMenuEl.style.display = "none";
   if (smartSearchPanelEl) smartSearchPanelEl.style.display = "none";
 
@@ -1080,8 +841,6 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
   const gitContext = parseGitHubUrl(tabUrl);
   githubModeBtnEl.style.display = gitContext ? "inline-flex" : "none";
 
-  // YouTube button — always visible so you can load a YouTube URL manually
-  if (youtubeModeBtn) youtubeModeBtn.style.display = "inline-flex";
   // PDF button — always visible so you can paste a PDF URL manually
   if (pdfModeBtnEl) pdfModeBtnEl.style.display = "inline-flex";
   // Smart Search — always visible

@@ -89,8 +89,8 @@ async function extractPageContent(tabId) {
   } catch (err) {
     // Tab navigated away, is otherwise protected, or belongs to another
     // extension mid-flight — degrade gracefully instead of failing the
-    // whole request (PDF/YouTube/GitHub Mode already supply their own
-    // context separately via extraContext).
+    // whole request (PDF/GitHub Mode already supply their own context
+    // separately via extraContext).
     return { title, url, content: "", truncated: false, unreadable: true };
   }
 }
@@ -172,9 +172,9 @@ async function streamChat(port, tabId, question, extraContext) {
     // The connection dropped mid-stream (Chrome surfaces this as a distinct
     // "network error", separate from a pre-connection "Failed to fetch") —
     // typically the backend or upstream LLM provider timing out or erroring
-    // partway through a large generation (PDF/YouTube-mode prompts are the
-    // biggest we send). If we'd already streamed some content, salvage it
-    // instead of discarding a partial answer the user already saw appear.
+    // partway through a large generation (PDF-mode prompts are the biggest
+    // we send). If we'd already streamed some content, salvage it instead
+    // of discarding a partial answer the user already saw appear.
     if (!fullAnswer) throw streamErr;
     const note = "\n\n_(Response was cut off — the connection was interrupted mid-stream.)_";
     fullAnswer += note;
