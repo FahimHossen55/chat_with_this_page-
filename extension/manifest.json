@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Chat with the content of your currently open webpage using an LLM.",
   "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

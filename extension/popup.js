@@ -260,6 +260,45 @@ function isPdfUrl(urlStr) {
   return false;
 }
 
+// A PDF tab (native Chrome viewer or a third-party viewer extension) can
+// never have a content script injected into it, so we can't scroll/highlight
+// like on a normal page. What every mainstream viewer *does* honor, though,
+// is the long-standing "#page=N" open-parameter convention (Adobe's original
+// spec, implemented by Chromium's own PDFium viewer and by pdf.js-based
+// extensions) — navigating the tab there jumps to the right page without
+// needing any injection permission at all.
+function normalizeForSearch(s) {
+  return s.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// getPdfText() tags each page's extracted text with "--- Page N ---", so
+// finding which page a snippet came from is just locating which page-chunk
+// contains it (whitespace-insensitively, since pdf.js's item-joined text
+// doesn't always match the LLM's returned wording byte-for-byte).
+function findPdfPageForSnippet(pageContent, snippet) {
+  const needle = normalizeForSearch(snippet).slice(0, 80);
+  if (!needle) return null;
+  const chunks = pageContent.split(/--- Page (\d+) ---/);
+  // String#split with a capturing group interleaves the results:
+  // ["", "1", "<page 1 text>", "2", "<page 2 text>", ...]
+  for (let i = 1; i < chunks.length; i += 2) {
+    const pageNum = parseInt(chunks[i], 10);
+    const text = chunks[i + 1] || "";
+    if (normalizeForSearch(text).includes(needle)) return pageNum;
+  }
+  return null;
+}
+
+function withPageFragment(urlStr, pageNum) {
+  try {
+    const url = new URL(urlStr);
+    url.hash = `page=${pageNum}`;
+    return url.toString();
+  } catch {
+    return urlStr;
+  }
+}
+
 // ─── YouTube Actions ──────────────────────────────────────────────────────────
 const YOUTUBE_ACTIONS = [
   { id: "summarize-video",    label: "Summarize video",      icon: "📋" },
@@ -281,6 +320,25 @@ const PDF_ACTIONS = [
 ];
 
 // ─── YouTube Transcript Fetching ─────────────────────────────────────────────
+function parseTranscriptXml(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  const textNodes = doc.getElementsByTagName("text");
+  const lines = [];
+  for (let i = 0; i < textNodes.length; i++) {
+    const node = textNodes[i];
+    const text = node.textContent
+      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+    if (!text) continue;
+    const startSec = Math.floor(parseFloat(node.getAttribute("start") || "0"));
+    const mm = Math.floor(startSec / 60);
+    const ss = startSec % 60;
+    lines.push({ time: startSec * 1000, timestamp: `[${mm}:${ss.toString().padStart(2,"0")}]`, text });
+  }
+  return lines;
+}
+
 async function getYouTubeTranscript(tabId) {
   try {
     const [result] = await chrome.scripting.executeScript({
@@ -299,21 +357,81 @@ async function getYouTubeTranscript(tabId) {
             playerResponse = window.ytInitialPlayerResponse || null;
           }
         }
-        if (!playerResponse) return null;
-        return playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+        const captionTracks =
+          playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+
+        // Also grab what's needed to call the same private "get_transcript"
+        // API that YouTube's own "Show transcript" button uses. The legacy
+        // /api/timedtext URLs in captionTracks[].baseUrl below increasingly
+        // come back as HTTP 200 with a zero-byte body — Google tightened
+        // anti-scraping on that endpoint and it now typically requires a
+        // session-bound Proof-of-Origin token a plain fetch doesn't have.
+        // This endpoint is what the real transcript panel depends on, so
+        // it's far less likely to be silently blocked.
+        let innertube = null;
+        try {
+          const apiKey = window.ytcfg?.get?.("INNERTUBE_API_KEY");
+          const context = window.ytcfg?.get?.("INNERTUBE_CONTEXT");
+          const panels = window.ytInitialData?.engagementPanels || [];
+          const panel = panels.find(
+            (p) =>
+              p?.engagementPanelSectionListRenderer?.panelIdentifier ===
+              "engagement-panel-searchable-transcript"
+          );
+          const params =
+            panel?.engagementPanelSectionListRenderer?.content?.continuationItemRenderer
+              ?.continuationEndpoint?.getTranscriptEndpoint?.params;
+          if (apiKey && context && params) innertube = { apiKey, context, params };
+        } catch {}
+
+        const videoId =
+          playerResponse?.videoDetails?.videoId ||
+          new URL(location.href).searchParams.get("v") ||
+          null;
+
+        return { captionTracks, innertube, videoId };
       }
     });
 
-    const captionTracks = result?.result;
-    if (!captionTracks || captionTracks.length === 0) {
-      throw new Error("No captions or transcripts available for this video.");
-    }
-
-    let track = captionTracks.find(t => t.languageCode === "en") || captionTracks[0];
-    if (!track || !track.baseUrl) throw new Error("No transcript URL found.");
+    const { captionTracks, innertube, videoId } = result?.result || {};
 
     // Inject content script first so messaging works even after extension reload
     await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+
+    // Attempt 1: YouTube's own get_transcript API, using whatever's already
+    // sitting in the live page's window.ytInitialData/ytcfg (fastest, no
+    // extra network round trip).
+    let innertubeError = null;
+    if (innertube) {
+      const viaApi = await chrome.tabs.sendMessage(tabId, {
+        type: "FETCH_YOUTUBE_TRANSCRIPT_V2",
+        ...innertube,
+      });
+      if (viaApi?.lines?.length) return viaApi.lines;
+      innertubeError = viaApi?.error || "empty response";
+    }
+
+    // Attempt 2: same API, but sourced from a fresh fetch of the watch page's
+    // own HTML instead of live in-page globals — YouTube's SPA navigation can
+    // leave window.ytInitialData stale or missing the transcript panel's
+    // continuation params for whatever video is *currently* loaded, which
+    // attempt 1 has no way to detect (it just looks empty/absent).
+    let watchPageError = null;
+    if (videoId) {
+      const viaHtml = await chrome.tabs.sendMessage(tabId, {
+        type: "FETCH_YOUTUBE_TRANSCRIPT_V3",
+        videoId,
+      });
+      if (viaHtml?.lines?.length) return viaHtml.lines;
+      watchPageError = viaHtml?.error || "empty response";
+    }
+
+    // Attempt 3: legacy caption-track XML.
+    if (!captionTracks || captionTracks.length === 0) {
+      throw new Error("No captions or transcripts available for this video.");
+    }
+    let track = captionTracks.find(t => t.languageCode === "en") || captionTracks[0];
+    if (!track || !track.baseUrl) throw new Error("No transcript URL found.");
 
     const fetchRes = await chrome.tabs.sendMessage(tabId, {
       type: "FETCH_YOUTUBE_TRANSCRIPT",
@@ -321,27 +439,21 @@ async function getYouTubeTranscript(tabId) {
     });
 
     if (!fetchRes) throw new Error("Failed to communicate with YouTube page content script.");
-    if (fetchRes.error) throw new Error(`Fetch error inside tab: ${fetchRes.error}`);
-    const xmlText = fetchRes.xmlText;
-    if (!xmlText) throw new Error("Transcript response is empty.");
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlText, "text/xml");
-    const textNodes = doc.getElementsByTagName("text");
-    if (textNodes.length === 0) throw new Error("Transcript XML contained no text nodes.");
-
-    const lines = [];
-    for (let i = 0; i < textNodes.length; i++) {
-      const node = textNodes[i];
-      const text = node.textContent
-        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-      if (!text) continue;
-      const startSec = Math.floor(parseFloat(node.getAttribute("start") || "0"));
-      const mm = Math.floor(startSec / 60);
-      const ss = startSec % 60;
-      lines.push({ time: startSec * 1000, timestamp: `[${mm}:${ss.toString().padStart(2,"0")}]`, text });
+    if (fetchRes.error || !fetchRes.xmlText) {
+      const detail = fetchRes.error || "empty response";
+      const attempts = [
+        innertubeError && `live-page API: ${innertubeError}`,
+        watchPageError && `watch-page API: ${watchPageError}`,
+      ].filter(Boolean).join("; ");
+      throw new Error(
+        `${detail}${attempts ? ` (also tried — ${attempts})` : ""} — YouTube is likely ` +
+        `throttling/blocking transcript requests for this video right now. Confirm captions ` +
+        `exist via the video's own CC/"Show transcript" button, then try again in a moment.`
+      );
     }
+
+    const lines = parseTranscriptXml(fetchRes.xmlText);
+    if (lines.length === 0) throw new Error("Transcript XML contained no text nodes.");
     return lines;
   } catch (err) {
     throw new Error("YouTube Transcript Error: " + err.message);
@@ -566,14 +678,30 @@ async function executeSmartSearch(query) {
 
     if (!snippet) throw new Error("Could not locate a matching section on the page.");
 
-    // Scroll & highlight in the active tab. Page text nodes can contain
-    // whatever raw whitespace/line-breaks the source HTML used, which won't
-    // match the single-spaced snippet the LLM returned unless both sides are
-    // normalized the same way first. Skipped entirely for PDFs and other
-    // non-scriptable pages — Chrome won't let us inject into a PDF viewer
-    // (native or another extension's) or a browser-internal page at all.
     let scrollResult = null;
-    if (isScriptableTabUrl(activeTabUrl)) {
+    let jumpedToPage = null;
+
+    if (isPdfUrl(activeTabUrl)) {
+      // Can't inject a content script into a PDF viewer tab (native or a
+      // third-party extension's) to scroll/highlight, but every mainstream
+      // viewer honors the "#page=N" fragment convention — so jump the whole
+      // tab there instead. pageContent already carries "--- Page N ---"
+      // markers from getPdfText(), so we just need to find which page-chunk
+      // contains the snippet.
+      const pageNum = findPdfPageForSnippet(pageContent, snippet);
+      if (pageNum) {
+        try {
+          await chrome.tabs.update(activeTabId, { url: withPageFragment(activeTabUrl, pageNum) });
+          jumpedToPage = pageNum;
+        } catch {
+          jumpedToPage = null;
+        }
+      }
+    } else if (isScriptableTabUrl(activeTabUrl)) {
+      // Scroll & highlight in the active tab. Page text nodes can contain
+      // whatever raw whitespace/line-breaks the source HTML used, which
+      // won't match the single-spaced snippet the LLM returned unless both
+      // sides are normalized the same way first.
       try {
         [scrollResult] = await chrome.scripting.executeScript({
           target: { tabId: activeTabId },
@@ -610,9 +738,11 @@ async function executeSmartSearch(query) {
     const shortSnippet = `"${snippet.slice(0, 100)}${snippet.length > 100 ? '…' : ''}"`;
     smartSearchStatusEl.textContent = scrollResult?.result
       ? `Found: ${shortSnippet} — scrolled there.`
-      : isPdfUrl(activeTabUrl)
-        ? `Found: ${shortSnippet} (scrolling to the exact spot isn't supported for PDF documents).`
-        : `Found: ${shortSnippet} — but couldn't locate it on the page to scroll to (it may be on a part of the page that hasn't rendered, e.g. behind a "load more" or a different tab/section).`;
+      : jumpedToPage
+        ? `Found: ${shortSnippet} — jumped to page ${jumpedToPage}.`
+        : isPdfUrl(activeTabUrl)
+          ? `Found: ${shortSnippet} (couldn't determine which page it's on).`
+          : `Found: ${shortSnippet} — but couldn't locate it on the page to scroll to (it may be on a part of the page that hasn't rendered, e.g. behind a "load more" or a different tab/section).`;
 
   } catch (err) {
     smartSearchStatusEl.textContent = `Error: ${err.message}`;

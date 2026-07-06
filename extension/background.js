@@ -142,30 +142,43 @@ async function streamChat(port, tabId, question, extraContext) {
   let fullAnswer = "";
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (!trimmedLine.startsWith("data:")) continue;
-      const data = trimmedLine.slice(5).trim();
-      if (data === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta?.content || "";
-        if (delta) {
-          fullAnswer += delta;
-          port.postMessage({ type: "CHUNK", delta });
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine.startsWith("data:")) continue;
+        const data = trimmedLine.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            fullAnswer += delta;
+            port.postMessage({ type: "CHUNK", delta });
+          }
+        } catch {
+          // ignore malformed SSE lines
         }
-      } catch {
-        // ignore malformed SSE lines
       }
     }
+  } catch (streamErr) {
+    // The connection dropped mid-stream (Chrome surfaces this as a distinct
+    // "network error", separate from a pre-connection "Failed to fetch") —
+    // typically the backend or upstream LLM provider timing out or erroring
+    // partway through a large generation (PDF/YouTube-mode prompts are the
+    // biggest we send). If we'd already streamed some content, salvage it
+    // instead of discarding a partial answer the user already saw appear.
+    if (!fullAnswer) throw streamErr;
+    const note = "\n\n_(Response was cut off — the connection was interrupted mid-stream.)_";
+    fullAnswer += note;
+    port.postMessage({ type: "CHUNK", delta: note });
   }
 
   await appendPageHistory(page.url, question, fullAnswer);
