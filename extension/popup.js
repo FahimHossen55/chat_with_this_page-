@@ -16,6 +16,15 @@ const githubMenuEl = document.getElementById("githubMenu");
 const closeGithubMenuBtnEl = document.getElementById("closeGithubMenuBtn");
 const githubActionsGridEl = document.getElementById("githubActionsGrid");
 
+// Features Dropdown Elements
+const featuresDropdownBtn = document.getElementById("featuresDropdownBtn");
+const featuresDropdownMenu = document.getElementById("featuresDropdownMenu");
+const dropdownSmartSearch = document.getElementById("dropdownSmartSearch");
+const dropdownLiterature = document.getElementById("dropdownLiterature");
+const dropdownDatasets = document.getElementById("dropdownDatasets");
+const dropdownPdf = document.getElementById("dropdownPdf");
+const dropdownGithub = document.getElementById("dropdownGithub");
+
 document.getElementById("optionsBtn").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
@@ -337,7 +346,7 @@ async function getPdfText(pdfUrl) {
         const buffer = await res.arrayBuffer();
         pdfDataOptions = { data: new Uint8Array(buffer) };
       } catch (err) {
-        throw new Error("Cannot access local file. Go to chrome://extensions → Chat With This Page → Details → enable 'Allow access to file URLs'.");
+        throw new Error("Cannot access local file. Go to chrome://extensions → Research OS → Details → enable 'Allow access to file URLs'.");
       }
     } else {
       // Fetch via background script to bypass CORS
@@ -1045,18 +1054,34 @@ async function loadForTab(tabId, tabTitle, tabUrl) {
   updateScrollBottomBtn();
 
   // Hide all overlays on tab change
+  if (featuresDropdownMenu) featuresDropdownMenu.style.display = "none";
   githubMenuEl.style.display = "none";
   if (pdfMenuEl) pdfMenuEl.style.display = "none";
   if (smartSearchPanelEl) smartSearchPanelEl.style.display = "none";
+  if (typeof litPanelEl !== "undefined" && litPanelEl) {
+    litPanelEl.style.display = "none";
+    litDetailsModalEl.style.display = "none";
+  }
+  if (typeof dsPanelEl !== "undefined" && dsPanelEl) {
+    dsPanelEl.style.display = "none";
+  }
 
-  // GitHub button — only on GitHub pages
+  // GitHub button & dropdown item — context check
   const gitContext = parseGitHubUrl(tabUrl);
-  githubModeBtnEl.style.display = gitContext ? "inline-flex" : "none";
+  if (githubModeBtnEl) {
+    githubModeBtnEl.style.display = "none";
+  }
+  if (dropdownGithub) {
+    if (gitContext) {
+      dropdownGithub.classList.remove("disabled");
+    } else {
+      dropdownGithub.classList.add("disabled");
+    }
+  }
 
-  // PDF button — always visible so you can paste a PDF URL manually
-  if (pdfModeBtnEl) pdfModeBtnEl.style.display = "inline-flex";
-  // Smart Search — always visible
-  if (smartSearchBtnEl) smartSearchBtnEl.style.display = "inline-flex";
+  // Hide legacy header buttons (features are now accessed via the Features dropdown)
+  if (pdfModeBtnEl) pdfModeBtnEl.style.display = "none";
+  if (smartSearchBtnEl) smartSearchBtnEl.style.display = "none";
 
   if (tabId) {
     if (tabUrl) await loadHistory(tabUrl);
@@ -1236,9 +1261,809 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   }
 });
 
+// ─── Literature Search Logic ──────────────────────────────────────────────────
+const litSearchBtnEl = document.getElementById("literatureSearchBtn");
+const litPanelEl = document.getElementById("literatureSearchPanel");
+const closeLitBtnEl = document.getElementById("closeLiteratureSearchBtn");
+const litSearchInputEl = document.getElementById("litSearchInput");
+const litSearchSubmitBtnEl = document.getElementById("litSearchSubmitBtn");
+const litSuggestionsEl = document.getElementById("litSuggestions");
+const litRecentSearchesEl = document.getElementById("litRecentSearches");
+const litRecentChipsEl = document.getElementById("litRecentChips");
+const litToggleFiltersBtnEl = document.getElementById("litToggleFiltersBtn");
+const litFiltersContentEl = document.getElementById("litFiltersContent");
+const litFiltersArrowEl = document.getElementById("litFiltersArrow");
+const litSourceSelectEl = document.getElementById("litSourceSelect");
+const litSortSelectEl = document.getElementById("litSortSelect");
+const litYearInputEl = document.getElementById("litYearInput");
+const litOpenAccessCheckEl = document.getElementById("litOpenAccessCheck");
+const litTrendingHeaderEl = document.getElementById("litTrendingHeader");
+const litSkeletonLoaderEl = document.getElementById("litSkeletonLoader");
+const litEmptyStateEl = document.getElementById("litEmptyState");
+const litResultsContainerEl = document.getElementById("litResultsContainer");
+const litPaginationEl = document.getElementById("litPagination");
+const litPrevPageBtnEl = document.getElementById("litPrevPageBtn");
+const litPageNumEl = document.getElementById("litPageNum");
+const litNextPageBtnEl = document.getElementById("litNextPageBtn");
+
+// Details modal elements
+const litDetailsModalEl = document.getElementById("litDetailsModal");
+const litModalSourceEl = document.getElementById("litModalSource");
+const litCloseModalBtnEl = document.getElementById("litCloseModalBtn");
+const litModalTitleEl = document.getElementById("litModalTitle");
+const litModalAuthorsEl = document.getElementById("litModalAuthors");
+const litModalVenueEl = document.getElementById("litModalVenue");
+const litModalYearEl = document.getElementById("litModalYear");
+const litModalCitationsEl = document.getElementById("litModalCitations");
+const litModalAbstractEl = document.getElementById("litModalAbstract");
+const litModalPdfBtnEl = document.getElementById("litModalPdfBtn");
+const litModalSimilarBtnEl = document.getElementById("litModalSimilarBtn");
+
+let litCurrentPage = 1;
+const litPageSize = 10;
+let litSearchQuery = "";
+let litActivePaper = null;
+let litSuggestionsTimeout = null;
+
+function escapeHTML(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function showLiteraturePanel(show) {
+  if (show) {
+    githubMenuEl.style.display = "none";
+    if (pdfMenuEl) pdfMenuEl.style.display = "none";
+    if (smartSearchPanelEl) smartSearchPanelEl.style.display = "none";
+    
+    litPanelEl.style.display = "flex";
+    renderRecentSearchChips();
+    if (!litSearchQuery) {
+      loadTrendingPapers();
+    }
+  } else {
+    litPanelEl.style.display = "none";
+    litDetailsModalEl.style.display = "none";
+  }
+}
+
+async function executeLiteratureSearch(query, page = 1) {
+  if (!query || !query.trim()) return;
+  litSearchQuery = query;
+  litCurrentPage = page;
+  
+  saveRecentSearch(query);
+  renderRecentSearchChips();
+  
+  litResultsContainerEl.innerHTML = "";
+  litTrendingHeaderEl.style.display = "none";
+  litEmptyStateEl.style.display = "none";
+  litSkeletonLoaderEl.style.display = "flex";
+  litPaginationEl.style.display = "none";
+  
+  const { backendUrl, ieeeApiKey, serpApiKey } = await chrome.storage.sync.get([
+    "backendUrl",
+    "ieeeApiKey",
+    "serpApiKey"
+  ]);
+  const resolvedBackend = backendUrl || "http://localhost:8000";
+  
+  const source = litSourceSelectEl.value;
+  const sort = litSortSelectEl.value;
+  const year = litYearInputEl.value.trim();
+  const openAccess = litOpenAccessCheckEl.checked;
+  const offset = (page - 1) * litPageSize;
+  
+  if (source === "scholar" && !serpApiKey) {
+    litSkeletonLoaderEl.style.display = "none";
+    litResultsContainerEl.innerHTML = `
+      <div class="popup-error" style="background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 8px; text-align: center; border-radius: 6px; margin: 10px;">
+        <span style="font-weight: 700; font-size: 12px; color: var(--text);">SerpAPI Key Required</span>
+        <span style="font-size: 11px; color: var(--text-muted);">Direct Google Scholar search requires a SerpAPI Key in settings. You can search directly on their website:</span>
+        <a href="https://scholar.google.com/scholar?q=${encodeURIComponent(query)}" target="_blank" class="ds-action-btn ds-action-btn-primary" style="margin: 4px auto 0 auto; text-decoration: none; padding: 4px 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; height: 26px; border-radius: 4px;">🔍 Search on Google Scholar</a>
+      </div>
+    `;
+    return;
+  }
+  
+  let url = `${resolvedBackend}/literature/search?query=${encodeURIComponent(query)}&source=${source}&sort=${sort}&limit=${litPageSize}&offset=${offset}`;
+  if (year) url += `&year=${encodeURIComponent(year)}`;
+  if (openAccess) url += `&open_access=true`;
+  if (ieeeApiKey) url += `&ieee_api_key=${encodeURIComponent(ieeeApiKey)}`;
+  if (serpApiKey) url += `&serp_api_key=${encodeURIComponent(serpApiKey)}`;
+  
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Search failed");
+    const data = await res.json();
+    
+    litSkeletonLoaderEl.style.display = "none";
+    const results = data.results || [];
+    
+    if (results.length === 1 && results[0].id === "SCHOLAR_KEY_REQUIRED") {
+      litResultsContainerEl.innerHTML = `
+        <div class="popup-error" style="background: var(--bg-subtle); color: var(--text); border: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 8px; text-align: center; border-radius: 6px; margin: 10px;">
+          <span style="font-weight: 700; font-size: 12px; color: var(--text);">SerpAPI Key Required</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Direct Google Scholar search requires a SerpAPI Key in settings. You can search directly on their website:</span>
+          <a href="https://scholar.google.com/scholar?q=${encodeURIComponent(query)}" target="_blank" class="ds-action-btn ds-action-btn-primary" style="margin: 4px auto 0 auto; text-decoration: none; padding: 4px 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; height: 26px; border-radius: 4px;">🔍 Search on Google Scholar</a>
+        </div>
+      `;
+      return;
+    }
+    
+    if (results.length === 0) {
+      litEmptyStateEl.style.display = "block";
+      return;
+    }
+    
+    renderResults(results);
+    
+    litPaginationEl.style.display = "flex";
+    litPageNumEl.textContent = `Page ${page}`;
+    litPrevPageBtnEl.disabled = page === 1;
+    litNextPageBtnEl.disabled = results.length < litPageSize;
+  } catch (err) {
+    console.error("Literature search error:", err);
+    litSkeletonLoaderEl.style.display = "none";
+    litResultsContainerEl.innerHTML = `<div class="popup-error" style="margin: 10px;">Error: ${err.message || String(err)}</div>`;
+  }
+}
+
+async function loadTrendingPapers() {
+  litResultsContainerEl.innerHTML = "";
+  litTrendingHeaderEl.style.display = "block";
+  litEmptyStateEl.style.display = "none";
+  litSkeletonLoaderEl.style.display = "flex";
+  litPaginationEl.style.display = "none";
+  
+  const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+  const resolvedBackend = backendUrl || "http://localhost:8000";
+  
+  try {
+    const res = await fetch(`${resolvedBackend}/literature/trending?limit=10`);
+    if (!res.ok) throw new Error("Trending papers failed");
+    const data = await res.json();
+    
+    litSkeletonLoaderEl.style.display = "none";
+    const results = data.results || [];
+    if (results.length === 0) {
+      litEmptyStateEl.style.display = "block";
+      return;
+    }
+    renderResults(results);
+  } catch (err) {
+    console.error("Trending papers error:", err);
+    litSkeletonLoaderEl.style.display = "none";
+    litResultsContainerEl.innerHTML = `<div class="popup-error" style="margin: 10px;">Error: ${err.message || String(err)}</div>`;
+  }
+}
+
+async function executeSimilarSearch(paperId) {
+  litResultsContainerEl.innerHTML = "";
+  litTrendingHeaderEl.style.display = "none";
+  litEmptyStateEl.style.display = "none";
+  litSkeletonLoaderEl.style.display = "flex";
+  litPaginationEl.style.display = "none";
+  litDetailsModalEl.style.display = "none";
+  
+  const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+  const resolvedBackend = backendUrl || "http://localhost:8000";
+  
+  try {
+    const res = await fetch(`${resolvedBackend}/literature/similar?paper_id=${encodeURIComponent(paperId)}&limit=10`);
+    if (!res.ok) throw new Error("Similar search failed");
+    const data = await res.json();
+    
+    litSkeletonLoaderEl.style.display = "none";
+    const results = data.results || [];
+    if (results.length === 0) {
+      litEmptyStateEl.style.display = "block";
+      return;
+    }
+    renderResults(results);
+  } catch (err) {
+    console.error("Similar search error:", err);
+    litSkeletonLoaderEl.style.display = "none";
+    litResultsContainerEl.innerHTML = `<div class="popup-error" style="margin: 10px;">Error: ${err.message || String(err)}</div>`;
+  }
+}
+
+function renderResults(results) {
+  litResultsContainerEl.innerHTML = "";
+  
+  results.forEach(paper => {
+    const card = document.createElement("div");
+    card.className = "lit-paper-card";
+    
+    const authorsStr = (paper.authors || []).join(", ") || "Unknown Authors";
+    const yearStr = paper.year ? `(${paper.year})` : "";
+    const venueStr = paper.venue || paper.source || "Academic Venue";
+    
+    let sourceBadgeClass = "lit-badge-semantic";
+    if (paper.source === "arXiv") sourceBadgeClass = "lit-badge-arxiv";
+    if (paper.source === "OpenAlex") sourceBadgeClass = "lit-badge-openalex";
+    if (paper.source && paper.source.includes("IEEE")) sourceBadgeClass = "lit-badge-ieee";
+    if (paper.source && paper.source.includes("Scholar")) sourceBadgeClass = "lit-badge-scholar";
+    if (paper.source && paper.source.includes("Scientific Data")) sourceBadgeClass = "lit-badge-nature";
+    
+    const oaBadge = paper.pdfLink ? `<span class="lit-oa-badge">Open Access</span>` : "";
+    
+    card.innerHTML = `
+      <h3 class="lit-paper-title" style="text-align: left;">${escapeHTML(paper.title)}</h3>
+      <div class="lit-paper-authors" style="text-align: left;">${escapeHTML(authorsStr)} ${yearStr}</div>
+      <p class="lit-paper-abstract-preview" style="text-align: left;">${escapeHTML(paper.abstract || "No abstract preview available.")}</p>
+      <div class="lit-paper-meta-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+          <span class="lit-badge ${sourceBadgeClass}" style="flex-shrink: 0;">${escapeHTML(paper.source)}</span>
+          <span class="lit-venue-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; font-size: 10px; color: var(--text-muted); font-weight: 600;" title="${escapeHTML(venueStr)}">${escapeHTML(venueStr)}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          ${oaBadge}
+          <span class="lit-citation-badge" style="font-weight: 700; color: var(--primary);">${paper.citationCount || 0} citations</span>
+        </div>
+      </div>
+    `;
+    
+    card.addEventListener("click", () => {
+      showPaperDetails(paper);
+    });
+    
+    litResultsContainerEl.appendChild(card);
+  });
+}
+
+function showPaperDetails(paper) {
+  litActivePaper = paper;
+  litModalSourceEl.textContent = paper.source;
+  
+  let sourceBadgeClass = "lit-badge-semantic";
+  if (paper.source === "arXiv") sourceBadgeClass = "lit-badge-arxiv";
+  if (paper.source === "OpenAlex") sourceBadgeClass = "lit-badge-openalex";
+  
+  litModalSourceEl.className = `lit-details-source lit-badge ${sourceBadgeClass}`;
+  
+  litModalTitleEl.textContent = paper.title;
+  litModalAuthorsEl.textContent = (paper.authors || []).join(", ") || "Unknown Authors";
+  litModalVenueEl.textContent = paper.venue || paper.source || "Academic Venue";
+  litModalYearEl.textContent = paper.year || "Unknown Year";
+  litModalCitationsEl.textContent = `${paper.citationCount || 0} citations`;
+  litModalAbstractEl.textContent = paper.abstract || "No abstract available.";
+  
+  if (paper.pdfLink) {
+    litModalPdfBtnEl.href = paper.pdfLink;
+    litModalPdfBtnEl.style.display = "inline-flex";
+  } else {
+    litModalPdfBtnEl.style.display = "none";
+  }
+  
+  litDetailsModalEl.style.display = "flex";
+}
+
+function saveRecentSearch(query) {
+  if (!query || !query.trim()) return;
+  chrome.storage.local.get({ litRecentSearches: [] }, (data) => {
+    let searches = data.litRecentSearches || [];
+    searches = searches.filter(s => s.toLowerCase() !== query.toLowerCase());
+    searches.unshift(query);
+    searches = searches.slice(0, 5);
+    chrome.storage.local.set({ litRecentSearches: searches });
+  });
+}
+
+function renderRecentSearchChips() {
+  chrome.storage.local.get({ litRecentSearches: [] }, (data) => {
+    const searches = data.litRecentSearches || [];
+    if (searches.length === 0) {
+      litRecentSearchesEl.style.display = "none";
+      return;
+    }
+    
+    litRecentSearchesEl.style.display = "flex";
+    litRecentChipsEl.innerHTML = "";
+    
+    searches.forEach(search => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "lit-chip";
+      chip.textContent = search;
+      chip.addEventListener("click", () => {
+        litSearchInputEl.value = search;
+        executeLiteratureSearch(search, 1);
+      });
+      litRecentChipsEl.appendChild(chip);
+    });
+  });
+}
+
+
+// ─── Dataset Search Logic ────────────────────────────────────────────────────
+const dsSearchBtnEl = document.getElementById("datasetSearchBtn");
+const dsPanelEl = document.getElementById("datasetSearchPanel");
+const closeDsBtnEl = document.getElementById("closeDatasetSearchBtn");
+const dsSearchInputEl = document.getElementById("dsSearchInput");
+const dsSearchSubmitBtnEl = document.getElementById("dsSearchSubmitBtn");
+const dsSuggestionsEl = document.getElementById("dsSuggestions");
+const dsRecentSearchesEl = document.getElementById("dsRecentSearches");
+const dsRecentChipsEl = document.getElementById("dsRecentChips");
+const dsToggleFiltersBtnEl = document.getElementById("dsToggleFiltersBtn");
+const dsFiltersContentEl = document.getElementById("dsFiltersContent");
+const dsFiltersArrowEl = document.getElementById("dsFiltersArrow");
+const dsSourceSelectEl = document.getElementById("dsSourceSelect");
+const dsDomainSelectEl = document.getElementById("dsDomainSelect");
+const dsTaskSelectEl = document.getElementById("dsTaskSelect");
+const dsModalitySelectEl = document.getElementById("dsModalitySelect");
+const dsSizeSelectEl = document.getElementById("dsSizeSelect");
+const dsLicenseInputEl = document.getElementById("dsLicenseInput");
+const dsSortSelectEl = document.getElementById("dsSortSelect");
+const dsSkeletonLoaderEl = document.getElementById("dsSkeletonLoader");
+const dsEmptyStateEl = document.getElementById("dsEmptyState");
+const dsResultsContainerEl = document.getElementById("dsResultsContainer");
+const dsPaginationEl = document.getElementById("dsPagination");
+const dsPrevPageBtnEl = document.getElementById("dsPrevPageBtn");
+const dsPageNumEl = document.getElementById("dsPageNum");
+const dsNextPageBtnEl = document.getElementById("dsNextPageBtn");
+
+let dsCurrentPage = 1;
+const dsPageSize = 10;
+let dsSearchQuery = "";
+let dsSuggestionsTimeout = null;
+let dsFavorites = [];
+
+// Load favorites initially
+chrome.storage.local.get({ dsFavorites: [] }, (data) => {
+  dsFavorites = data.dsFavorites || [];
+});
+
+function saveFavoriteDataset(dataset) {
+  const nameKey = dataset.name.toLowerCase().trim();
+  const exists = dsFavorites.some(d => d.name.toLowerCase().trim() === nameKey);
+  if (exists) {
+    dsFavorites = dsFavorites.filter(d => d.name.toLowerCase().trim() !== nameKey);
+  } else {
+    dsFavorites.push(dataset);
+  }
+  chrome.storage.local.set({ dsFavorites });
+}
+
+function showDatasetPanel(show) {
+  if (show) {
+    githubMenuEl.style.display = "none";
+    if (pdfMenuEl) pdfMenuEl.style.display = "none";
+    if (smartSearchPanelEl) smartSearchPanelEl.style.display = "none";
+    if (litPanelEl) {
+      litPanelEl.style.display = "none";
+      litDetailsModalEl.style.display = "none";
+    }
+    
+    dsPanelEl.style.display = "flex";
+    renderDsRecentSearchChips();
+    if (!dsSearchQuery) {
+      loadInitialDatasets();
+    }
+  } else {
+    dsPanelEl.style.display = "none";
+  }
+}
+
+async function executeDatasetSearch(query, page = 1) {
+  if (!query || !query.trim()) return;
+  dsSearchQuery = query;
+  dsCurrentPage = page;
+  
+  saveDsRecentSearch(query);
+  renderDsRecentSearchChips();
+  
+  dsResultsContainerEl.innerHTML = "";
+  dsEmptyStateEl.style.display = "none";
+  dsSkeletonLoaderEl.style.display = "flex";
+  dsPaginationEl.style.display = "none";
+  
+  const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+  const resolvedBackend = backendUrl || "http://localhost:8000";
+  
+  const source = dsSourceSelectEl.value;
+  const domain = dsDomainSelectEl.value;
+  const task = dsTaskSelectEl.value;
+  const modality = dsModalitySelectEl.value;
+  const size = dsSizeSelectEl.value;
+  const license = dsLicenseInputEl.value.trim();
+  const sort = dsSortSelectEl.value;
+  const offset = (page - 1) * dsPageSize;
+  
+  let url = `${resolvedBackend}/datasets/search?query=${encodeURIComponent(query)}&source=${source}&sort=${sort}&limit=${dsPageSize}&offset=${offset}`;
+  if (domain) url += `&domain=${encodeURIComponent(domain)}`;
+  if (task) url += `&task=${encodeURIComponent(task)}`;
+  if (modality) url += `&modality=${encodeURIComponent(modality)}`;
+  if (size) url += `&size=${encodeURIComponent(size)}`;
+  if (license) url += `&license=${encodeURIComponent(license)}`;
+  
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Dataset search failed");
+    const data = await res.json();
+    
+    dsSkeletonLoaderEl.style.display = "none";
+    const results = data.results || [];
+    if (results.length === 0) {
+      dsEmptyStateEl.style.display = "block";
+      return;
+    }
+    
+    renderDatasetResults(results);
+    
+    dsPaginationEl.style.display = "flex";
+    dsPageNumEl.textContent = `Page ${page}`;
+    dsPrevPageBtnEl.disabled = page === 1;
+    dsNextPageBtnEl.disabled = results.length < dsPageSize;
+  } catch (err) {
+    console.error("Dataset search error:", err);
+    dsSkeletonLoaderEl.style.display = "none";
+    dsResultsContainerEl.innerHTML = `<div class="popup-error" style="margin: 10px;">Error: ${err.message || String(err)}</div>`;
+  }
+}
+
+async function loadInitialDatasets() {
+  dsResultsContainerEl.innerHTML = "";
+  dsEmptyStateEl.style.display = "none";
+  dsSkeletonLoaderEl.style.display = "flex";
+  dsPaginationEl.style.display = "none";
+  
+  const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+  const resolvedBackend = backendUrl || "http://localhost:8000";
+  
+  try {
+    const res = await fetch(`${resolvedBackend}/datasets/search?query=brain+eeg&limit=10`);
+    if (!res.ok) throw new Error("Initial datasets failed");
+    const data = await res.json();
+    
+    dsSkeletonLoaderEl.style.display = "none";
+    const results = data.results || [];
+    if (results.length === 0) {
+      dsEmptyStateEl.style.display = "block";
+      return;
+    }
+    renderDatasetResults(results);
+  } catch (err) {
+    console.error("Initial datasets error:", err);
+    dsSkeletonLoaderEl.style.display = "none";
+    dsResultsContainerEl.innerHTML = `<div class="popup-error" style="margin: 10px;">Error: ${err.message || String(err)}</div>`;
+  }
+}
+
+function renderDatasetResults(results) {
+  dsResultsContainerEl.innerHTML = "";
+  
+  results.forEach(ds => {
+    const card = document.createElement("div");
+    card.className = "lit-paper-card";
+    
+    const formatsStr = (ds.formats || []).slice(0, 3).join(", ") || "ZIP";
+    
+    let sourceBadgeClass = "lit-badge-semantic";
+    if (ds.source === "Kaggle") sourceBadgeClass = "lit-badge-kaggle";
+    if (ds.source === "OpenML") sourceBadgeClass = "lit-badge-openalex";
+    if (ds.source === "Zenodo") sourceBadgeClass = "lit-badge-openalex";
+    if (ds.source === "UCI") sourceBadgeClass = "lit-badge-uci";
+    if (ds.source === "Papers with Code") sourceBadgeClass = "lit-badge-paperswithcode";
+    
+    const isFav = dsFavorites.some(f => f.name.toLowerCase().trim() === ds.name.toLowerCase().trim());
+    const favClass = isFav ? "active" : "";
+    
+    card.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px;">
+        <h3 class="lit-paper-title" style="flex: 1; text-align: left;">${escapeHTML(ds.name)}</h3>
+        <button class="ds-fav-btn ${favClass}" title="Save to Favorites">❤️</button>
+      </div>
+      <p class="lit-paper-abstract-preview" style="-webkit-line-clamp: 3; text-align: left;">${escapeHTML(ds.description || "No description available.")}</p>
+      
+      <div class="ds-tags-container">
+        <span class="ds-tag">${escapeHTML(ds.domain)}</span>
+        <span class="ds-tag">${escapeHTML(ds.modality)}</span>
+        <span class="ds-tag">${escapeHTML(ds.task)}</span>
+        <span class="ds-tag">${escapeHTML(ds.size)}</span>
+        <span class="ds-tag">License: ${escapeHTML(ds.license)}</span>
+      </div>
+
+      <div class="ds-card-actions">
+        <span style="font-size: 10px; font-weight: 600; color: var(--text-muted);">
+          <span class="lit-badge ${sourceBadgeClass}">${escapeHTML(ds.source)}</span>
+          <span style="margin-left: 4px;">${escapeHTML(formatsStr)}</span>
+        </span>
+        <div class="ds-action-btn-row">
+          <button class="ds-action-btn copy-btn" title="Copy dataset link">🔗 Link</button>
+          <a href="${ds.url}" target="_blank" class="ds-action-btn ds-action-btn-primary" title="Open Dataset Page">Download</a>
+        </div>
+      </div>
+    `;
+    
+    const favBtn = card.querySelector(".ds-fav-btn");
+    favBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      saveFavoriteDataset(ds);
+      favBtn.classList.toggle("active");
+    });
+    
+    const copyBtn = card.querySelector(".copy-btn");
+    copyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(ds.url).then(() => {
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => copyBtn.textContent = originalText, 1500);
+      });
+    });
+    
+    dsResultsContainerEl.appendChild(card);
+  });
+}
+
+function saveDsRecentSearch(query) {
+  if (!query || !query.trim()) return;
+  chrome.storage.local.get({ dsRecentSearches: [] }, (data) => {
+    let searches = data.dsRecentSearches || [];
+    searches = searches.filter(s => s.toLowerCase() !== query.toLowerCase());
+    searches.unshift(query);
+    searches = searches.slice(0, 5);
+    chrome.storage.local.set({ dsRecentSearches: searches });
+  });
+}
+
+function renderDsRecentSearchChips() {
+  chrome.storage.local.get({ dsRecentSearches: [] }, (data) => {
+    const searches = data.dsRecentSearches || [];
+    if (searches.length === 0) {
+      dsRecentSearchesEl.style.display = "none";
+      return;
+    }
+    
+    dsRecentSearchesEl.style.display = "flex";
+    dsRecentChipsEl.innerHTML = "";
+    
+    searches.forEach(search => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "lit-chip";
+      chip.textContent = search;
+      chip.addEventListener("click", () => {
+        dsSearchInputEl.value = search;
+        executeDatasetSearch(search, 1);
+      });
+      dsRecentChipsEl.appendChild(chip);
+    });
+  });
+}
+
+
 (async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await refreshModelBadge();
   await loadForTab(tab?.id ?? null, tab?.title, tab?.url);
   connectPort();
+
+  // Literature Search listeners
+  litSearchBtnEl.addEventListener("click", () => {
+    const show = litPanelEl.style.display === "none";
+    showLiteraturePanel(show);
+  });
+  
+  closeLitBtnEl.addEventListener("click", () => {
+    showLiteraturePanel(false);
+  });
+  
+  litSearchSubmitBtnEl.addEventListener("click", () => {
+    executeLiteratureSearch(litSearchInputEl.value.trim(), 1);
+  });
+  
+  litSearchInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      executeLiteratureSearch(litSearchInputEl.value.trim(), 1);
+    }
+  });
+  
+  litToggleFiltersBtnEl.addEventListener("click", () => {
+    const show = litFiltersContentEl.style.display === "none";
+    litFiltersContentEl.style.display = show ? "block" : "none";
+    litFiltersArrowEl.style.transform = show ? "rotate(180deg)" : "rotate(0deg)";
+  });
+  
+  litPrevPageBtnEl.addEventListener("click", () => {
+    if (litCurrentPage > 1) {
+      executeLiteratureSearch(litSearchQuery, litCurrentPage - 1);
+    }
+  });
+  
+  litNextPageBtnEl.addEventListener("click", () => {
+    executeLiteratureSearch(litSearchQuery, litCurrentPage + 1);
+  });
+  
+  litCloseModalBtnEl.addEventListener("click", () => {
+    litDetailsModalEl.style.display = "none";
+  });
+  
+  litModalSimilarBtnEl.addEventListener("click", () => {
+    if (litActivePaper && litActivePaper.id) {
+      executeSimilarSearch(litActivePaper.id);
+    }
+  });
+  
+  litSearchInputEl.addEventListener("input", () => {
+    const query = litSearchInputEl.value.trim();
+    if (query.length < 3) {
+      litSuggestionsEl.style.display = "none";
+      return;
+    }
+    
+    clearTimeout(litSuggestionsTimeout);
+    litSuggestionsTimeout = setTimeout(async () => {
+      const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+      const resolvedBackend = backendUrl || "http://localhost:8000";
+      
+      try {
+        const res = await fetch(`${resolvedBackend}/literature/search?query=${encodeURIComponent(query)}&limit=5`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const results = data.results || [];
+        
+        if (results.length === 0) {
+          litSuggestionsEl.style.display = "none";
+          return;
+        }
+        
+        litSuggestionsEl.innerHTML = "";
+        results.forEach(paper => {
+          const item = document.createElement("div");
+          item.className = "lit-suggestion-item";
+          item.textContent = paper.title;
+          item.addEventListener("click", () => {
+            litSearchInputEl.value = paper.title;
+            litSuggestionsEl.style.display = "none";
+            executeLiteratureSearch(paper.title, 1);
+          });
+          litSuggestionsEl.appendChild(item);
+        });
+        litSuggestionsEl.style.display = "block";
+      } catch (e) {
+        console.warn("Suggestions fetch failed", e);
+      }
+    }, 300);
+  });
+  
+  document.addEventListener("click", (e) => {
+    if (!litSearchInputEl.contains(e.target) && !litSuggestionsEl.contains(e.target)) {
+      litSuggestionsEl.style.display = "none";
+    }
+  });
+
+  // Dataset Search listeners
+  dsSearchBtnEl.addEventListener("click", () => {
+    const show = dsPanelEl.style.display === "none";
+    showDatasetPanel(show);
+  });
+  
+  closeDsBtnEl.addEventListener("click", () => {
+    showDatasetPanel(false);
+  });
+  
+  dsSearchSubmitBtnEl.addEventListener("click", () => {
+    executeDatasetSearch(dsSearchInputEl.value.trim(), 1);
+  });
+  
+  dsSearchInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      executeDatasetSearch(dsSearchInputEl.value.trim(), 1);
+    }
+  });
+  
+  dsToggleFiltersBtnEl.addEventListener("click", () => {
+    const show = dsFiltersContentEl.style.display === "none";
+    dsFiltersContentEl.style.display = show ? "block" : "none";
+    dsFiltersArrowEl.style.transform = show ? "rotate(180deg)" : "rotate(0deg)";
+  });
+  
+  dsPrevPageBtnEl.addEventListener("click", () => {
+    if (dsCurrentPage > 1) {
+      executeDatasetSearch(dsSearchQuery, dsCurrentPage - 1);
+    }
+  });
+  
+  dsNextPageBtnEl.addEventListener("click", () => {
+    executeDatasetSearch(dsSearchQuery, dsCurrentPage + 1);
+  });
+  
+  dsSearchInputEl.addEventListener("input", () => {
+    const query = dsSearchInputEl.value.trim();
+    if (query.length < 3) {
+      dsSuggestionsEl.style.display = "none";
+      return;
+    }
+    
+    clearTimeout(dsSuggestionsTimeout);
+    dsSuggestionsTimeout = setTimeout(async () => {
+      const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+      const resolvedBackend = backendUrl || "http://localhost:8000";
+      
+      try {
+        const res = await fetch(`${resolvedBackend}/datasets/search?query=${encodeURIComponent(query)}&limit=5`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const results = data.results || [];
+        
+        if (results.length === 0) {
+          dsSuggestionsEl.style.display = "none";
+          return;
+        }
+        
+        dsSuggestionsEl.innerHTML = "";
+        results.forEach(ds => {
+          const item = document.createElement("div");
+          item.className = "lit-suggestion-item";
+          item.textContent = ds.name;
+          item.addEventListener("click", () => {
+            dsSearchInputEl.value = ds.name;
+            dsSuggestionsEl.style.display = "none";
+            executeDatasetSearch(ds.name, 1);
+          });
+          dsSuggestionsEl.appendChild(item);
+        });
+        dsSuggestionsEl.style.display = "block";
+      } catch (e) {
+        console.warn("Suggestions fetch failed", e);
+      }
+    }, 300);
+  });
+  
+  // Features dropdown logic
+  if (featuresDropdownBtn && featuresDropdownMenu) {
+    featuresDropdownBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = featuresDropdownMenu.style.display === "flex";
+      featuresDropdownMenu.style.display = isVisible ? "none" : "flex";
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!featuresDropdownBtn.contains(e.target) && !featuresDropdownMenu.contains(e.target)) {
+        featuresDropdownMenu.style.display = "none";
+      }
+    });
+
+    dropdownSmartSearch.addEventListener("click", () => {
+      featuresDropdownMenu.style.display = "none";
+      if (smartSearchBtnEl) smartSearchBtnEl.click();
+    });
+
+    dropdownLiterature.addEventListener("click", () => {
+      featuresDropdownMenu.style.display = "none";
+      if (litSearchBtnEl) litSearchBtnEl.click();
+    });
+
+    dropdownDatasets.addEventListener("click", () => {
+      featuresDropdownMenu.style.display = "none";
+      if (dsSearchBtnEl) dsSearchBtnEl.click();
+    });
+
+    dropdownPdf.addEventListener("click", () => {
+      featuresDropdownMenu.style.display = "none";
+      if (pdfModeBtnEl) pdfModeBtnEl.click();
+    });
+
+    dropdownGithub.addEventListener("click", () => {
+      if (!dropdownGithub.classList.contains("disabled")) {
+        featuresDropdownMenu.style.display = "none";
+        if (githubModeBtnEl) githubModeBtnEl.click();
+      }
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!dsSearchInputEl.contains(e.target) && !dsSuggestionsEl.contains(e.target)) {
+      dsSuggestionsEl.style.display = "none";
+    }
+  });
 })();
+
+

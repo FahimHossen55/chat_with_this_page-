@@ -4,22 +4,20 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Chat With This Page</title>
+    <title>Research OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <header>
       <div class="brand">
-        <span class="logo">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v10c0 .83-.67 1.5-1.5 1.5H9l-4 3.5v-3.5H5.5C4.67 17 4 16.33 4 15.5v-10Z"
-              fill="currentColor"
-            />
-          </svg>
+        <span class="logo" style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;">
+          <img src="logo.png" alt="logo" style="width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.4));" />
         </span>
         <div class="brand-text">
-          <span class="title">Chat With This Page</span>
+          <span class="title">Research OS</span>
           <span class="subtitle" id="pageTitle">No page detected</span>
         </div>
       </div>
@@ -27,12 +25,18 @@
         <button id="modelBadge" class="chip" type="button" title="Model in use — change in Settings">
           <span id="modelBadgeText">…</span>
         </button>
-        <button id="githubModeBtn" class="icon-btn" type="button" title="GitHub Mode">
+        <button id="featuresDropdownBtn" class="features-dropdown-btn" type="button" title="Research Tools & Modes">
+          <span>⚡ Features</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px; margin-left: 3px;"><path d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        
+        <!-- Hidden legacy buttons to preserve original JS event logic -->
+        <button id="githubModeBtn" class="icon-btn" type="button" title="GitHub Mode" style="display: none;">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.164 22 16.418 22 12c0-5.523-4.477-10-10-10Z" fill="currentColor"/>
           </svg>
         </button>
-        <button id="pdfModeBtn" class="icon-btn" type="button" title="PDF Mode">
+        <button id="pdfModeBtn" class="icon-btn" type="button" title="PDF Mode" style="display: none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
@@ -41,12 +45,26 @@
             <polyline points="10 9 9 9 8 9"/>
           </svg>
         </button>
-        <button id="smartSearchBtn" class="icon-btn" type="button" title="Smart Search">
+        <button id="smartSearchBtn" class="icon-btn" type="button" title="Smart Search" style="display: none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
             <circle cx="11" cy="11" r="8"/>
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </button>
+        <button id="literatureSearchBtn" class="icon-btn" type="button" title="Literature Search" style="display: none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+        </button>
+        <button id="datasetSearchBtn" class="icon-btn" type="button" title="Dataset Search" style="display: none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+        </button>
+        
         <button id="sidePanelBtn" class="icon-btn" type="button" title="Open in side panel">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect
@@ -86,8 +104,51 @@
             />
           </svg>
         </button>
+        <button id="userProfileBtn" class="icon-btn user-profile-btn" type="button" title="User Account" style="display: none;">
+          <img id="userAvatar" src="" alt="avatar" />
+        </button>
       </div>
     </header>
+
+    <!-- Floating Features Dropdown Menu -->
+    <div id="featuresDropdownMenu" class="features-dropdown-menu" style="display: none;">
+      <button type="button" class="dropdown-item" id="dropdownSmartSearch">
+        <span class="item-icon">🔍</span>
+        <div class="item-text">
+          <span class="item-title">Smart Search</span>
+          <span class="item-desc">Find verbatim answers on active page</span>
+        </div>
+      </button>
+      <button type="button" class="dropdown-item" id="dropdownLiterature">
+        <span class="item-icon">📚</span>
+        <div class="item-text">
+          <span class="item-title">Literature Search</span>
+          <span class="item-desc">Find papers on arXiv, IEEE, Scholar</span>
+        </div>
+      </button>
+      <button type="button" class="dropdown-item" id="dropdownDatasets">
+        <span class="item-icon">📊</span>
+        <div class="item-text">
+          <span class="item-title">Dataset Search</span>
+          <span class="item-desc">Find datasets on HuggingFace, UCI, Zenodo</span>
+        </div>
+      </button>
+      <div class="dropdown-divider"></div>
+      <button type="button" class="dropdown-item" id="dropdownPdf">
+        <span class="item-icon">📄</span>
+        <div class="item-text">
+          <span class="item-title">PDF Analyzer</span>
+          <span class="item-desc">Summarize, extract formulas & reference PDF</span>
+        </div>
+      </button>
+      <button type="button" class="dropdown-item" id="dropdownGithub">
+        <span class="item-icon">💻</span>
+        <div class="item-text">
+          <span class="item-title">GitHub Copilot</span>
+          <span class="item-desc">Review repositories, files, issues & code</span>
+        </div>
+      </button>
+    </div>
 
     <div id="messages">
       <div id="emptyState" class="empty-state">
@@ -212,6 +273,350 @@
           <button type="button" id="smartSearchSubmitBtn" class="github-action-card" style="width: auto; padding: 0 12px; margin: 0; font-size: 11.5px; border-radius: 6px; height: 30px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">Search</button>
         </div>
         <div id="smartSearchStatus" style="font-size: 11px; color: var(--text-muted); display: none; line-height: 1.4;"></div>
+      </div>
+    </div>
+
+    <div id="literatureSearchPanel" class="github-menu" style="display: none;">
+      <div class="github-menu-header">
+        <div class="github-menu-title">
+          <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; color: var(--primary);">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          <span>Literature Search</span>
+        </div>
+        <button id="closeLiteratureSearchBtn" class="close-btn" type="button" title="Close menu">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="github-menu-content" style="display: flex; flex-direction: column; gap: 12px; height: 100%; overflow-y: auto;">
+        
+        <!-- Search Controls -->
+        <div class="lit-search-box" style="position: relative; width: 100%;">
+          <div style="display: flex; gap: 6px; width: 100%;">
+            <input type="text" id="litSearchInput" placeholder="Search papers, authors, venues..." style="flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); color: var(--text); font-family: inherit; font-size: 11.5px; height: 30px; box-sizing: border-box;" />
+            <button type="button" id="litSearchSubmitBtn" class="github-action-card" style="width: auto; padding: 0 12px; margin: 0; font-size: 11.5px; border-radius: 6px; height: 30px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">Search</button>
+          </div>
+          <div id="litSuggestions" class="lit-suggestions-dropdown" style="display: none; position: absolute; top: 32px; left: 0; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; z-index: 200; box-shadow: var(--shadow); max-height: 150px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Recent Searches Chips -->
+        <div id="litRecentSearches" class="lit-recent-searches" style="display: none; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="font-size: 9.5px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">RECENT:</span>
+          <div id="litRecentChips" class="lit-chips-container" style="display: flex; gap: 4px; flex-wrap: wrap;"></div>
+        </div>
+
+        <!-- Filters Accordion -->
+        <div class="lit-filters-accordion" style="border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-subtle);">
+          <button type="button" id="litToggleFiltersBtn" class="lit-filter-toggle" style="width: 100%; border: none; background: transparent; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: var(--text); font-size: 11px; font-weight: 600;">
+            <span>⚙️ Search Filters &amp; Options</span>
+            <svg id="litFiltersArrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px; transition: transform 0.2s; color: var(--text-muted);"><path d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div id="litFiltersContent" class="lit-filter-content" style="display: none; padding: 10px; background: var(--bg); border-top: 1px solid var(--border);">
+            <div class="lit-filter-grid" style="display: flex; flex-direction: column; gap: 8px;">
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Source</label>
+                <select id="litSourceSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="all">All Sources</option>
+                  <option value="semanticscholar">Semantic Scholar</option>
+                  <option value="arxiv">arXiv</option>
+                  <option value="openalex">OpenAlex (PubMed / Crossref)</option>
+                  <option value="scholar">Google Scholar</option>
+                  <option value="ieee">IEEE Xplore</option>
+                  <option value="scientificdata">Scientific Data (Nature)</option>
+                </select>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Sort By</label>
+                <select id="litSortSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="relevance">Relevance</option>
+                  <option value="newest">Newest First</option>
+                  <option value="citations">Citations</option>
+                </select>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Publication Year</label>
+                <input type="text" id="litYearInput" placeholder="e.g. 2024, 2020-2024" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; outline: none;" />
+              </div>
+              <div class="lit-filter-group" style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
+                <input type="checkbox" id="litOpenAccessCheck" style="margin: 0; cursor: pointer;" />
+                <label for="litOpenAccessCheck" style="margin: 0; cursor: pointer; font-size: 10.5px; font-weight: 600; color: var(--text);">Open Access Only</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results List Section -->
+        <div id="litResultsSection" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+          <!-- Trending Section Header (visible initially) -->
+          <div id="litTrendingHeader" class="lit-section-header" style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; display: block;">
+            <span>📈 Trending Papers This Week</span>
+          </div>
+
+          <!-- Loader Skeletons -->
+          <div id="litSkeletonLoader" style="display: none; flex-direction: column; gap: 8px;">
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 80%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 45%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 6px;"></div>
+              <div class="lit-skeleton-line" style="width: 95%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 10px;"></div>
+              <div class="lit-skeleton-line" style="width: 90%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 4px;"></div>
+            </div>
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 75%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 50%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 6px;"></div>
+              <div class="lit-skeleton-line" style="width: 90%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 10px;"></div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="litEmptyState" class="lit-empty-state" style="display: none; text-align: center; padding: 30px 10px; color: var(--text-muted);">
+            <p style="font-size: 13px; font-weight: 600; margin: 0 0 4px 0; color: var(--text);">No papers found</p>
+            <span style="font-size: 11px;">Try adjusting your query or filters.</span>
+          </div>
+
+          <!-- Scrollable Results Container -->
+          <div id="litResultsContainer" class="lit-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px;"></div>
+          
+          <!-- Pagination -->
+          <div id="litPagination" class="lit-pagination" style="display: none; align-items: center; justify-content: space-between; padding: 10px 0 2px 0; border-top: 1px solid var(--border); margin-top: 8px; flex-shrink: 0;">
+            <button type="button" id="litPrevPageBtn" style="padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; cursor: pointer; font-weight: 600;" disabled>Previous</button>
+            <span id="litPageNum" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">Page 1</span>
+            <button type="button" id="litNextPageBtn" style="padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; cursor: pointer; font-weight: 600;">Next</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paper Details Modal (Slide Up Drawer) -->
+      <div id="litDetailsModal" class="lit-details-modal" style="display: none; position: absolute; bottom: 0; left: 0; right: 0; height: 80%; background: var(--bg); border-top: 1px solid var(--border); border-top-left-radius: 12px; border-top-right-radius: 12px; box-shadow: 0 -8px 24px rgba(0,0,0,0.15); z-index: 150; flex-direction: column; animation: modal-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div class="lit-details-header" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-subtle); border-bottom: 1px solid var(--border); border-top-left-radius: 12px; border-top-right-radius: 12px;">
+          <span class="lit-details-source" id="litModalSource" style="font-size: 9.5px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; background: var(--primary-soft); padding: 2px 6px; border-radius: 10px;">Source</span>
+          <button id="litCloseModalBtn" type="button" style="border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11.5px; font-weight: 600;">Close</button>
+        </div>
+        <div class="lit-details-content" style="padding: 14px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px;">
+          <h2 id="litModalTitle" class="lit-modal-title" style="font-size: 14px; font-weight: 700; margin: 0; line-height: 1.35; color: var(--text);">Paper Title</h2>
+          <div id="litModalAuthors" class="lit-modal-authors" style="font-size: 11.5px; color: var(--text-muted); font-weight: 500;">Authors list</div>
+          <div class="lit-modal-meta" style="font-size: 10.5px; color: var(--text-muted); font-weight: 600;">
+            <span id="litModalVenue">Venue</span> · <span id="litModalYear">Year</span> · <span id="litModalCitations" class="lit-citation-badge" style="color: var(--primary);">0 citations</span>
+          </div>
+          <div class="lit-modal-divider" style="height: 1px; background: var(--border); margin: 4px 0;"></div>
+          <h3 style="font-size: 11.5px; font-weight: 700; margin: 2px 0 4px 0; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px;">Abstract</h3>
+          <p id="litModalAbstract" class="lit-modal-abstract" style="font-size: 11.5px; line-height: 1.5; color: var(--text); margin: 0; overflow-y: auto; max-height: 140px; white-space: pre-wrap; word-break: break-word; font-family: inherit;">Abstract body text...</p>
+          <div class="lit-modal-divider" style="height: 1px; background: var(--border); margin: 4px 0;"></div>
+          <div class="lit-modal-actions" style="display: flex; gap: 8px; margin-top: auto; padding-top: 8px; flex-wrap: wrap;">
+            <a id="litModalPdfBtn" href="#" target="_blank" class="lit-modal-action-btn pdf-btn" style="flex: 1; text-align: center; text-decoration: none; padding: 7px 10px; border-radius: 6px; background: var(--primary); color: white; font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box; height: 30px;">📄 Open PDF</a>
+            <button id="litModalSimilarBtn" type="button" class="lit-modal-action-btn similar-btn" style="flex: 1; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 4px; cursor: pointer; height: 30px; box-sizing: border-box;">🔍 Find Similar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="datasetSearchPanel" class="github-menu" style="display: none;">
+      <div class="github-menu-header">
+        <div class="github-menu-title">
+          <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; color: var(--primary);">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          <span>Dataset Search</span>
+        </div>
+        <button id="closeDatasetSearchBtn" class="close-btn" type="button" title="Close menu">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="github-menu-content" style="display: flex; flex-direction: column; gap: 12px; height: 100%; overflow-y: auto;">
+        
+        <!-- Search Controls -->
+        <div class="lit-search-box" style="position: relative; width: 100%;">
+          <div style="display: flex; gap: 6px; width: 100%;">
+            <input type="text" id="dsSearchInput" placeholder="Search datasets, modalities, licenses..." style="flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); color: var(--text); font-family: inherit; font-size: 11.5px; height: 30px; box-sizing: border-box;" />
+            <button type="button" id="dsSearchSubmitBtn" class="github-action-card" style="width: auto; padding: 0 12px; margin: 0; font-size: 11.5px; border-radius: 6px; height: 30px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;">Search</button>
+          </div>
+          <div id="dsSuggestions" class="lit-suggestions-dropdown" style="display: none; position: absolute; top: 32px; left: 0; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; z-index: 200; box-shadow: var(--shadow); max-height: 150px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Recent Searches Chips -->
+        <div id="dsRecentSearches" class="lit-recent-searches" style="display: none; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="font-size: 9.5px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">RECENT:</span>
+          <div id="dsRecentChips" class="lit-chips-container" style="display: flex; gap: 4px; flex-wrap: wrap;"></div>
+        </div>
+
+        <!-- Collapsible Filters Accordion -->
+        <div class="lit-filters-accordion" style="border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-subtle);">
+          <button type="button" id="dsToggleFiltersBtn" class="lit-filter-toggle" style="width: 100%; border: none; background: transparent; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: var(--text); font-size: 11px; font-weight: 600;">
+            <span>⚙️ Advanced Filters &amp; Options</span>
+            <svg id="dsFiltersArrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 10px; height: 10px; transition: transform 0.2s; color: var(--text-muted);"><path d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div id="dsFiltersContent" class="lit-filter-content" style="display: none; padding: 10px; background: var(--bg); border-top: 1px solid var(--border);">
+            <div class="lit-filter-grid" style="display: flex; flex-direction: column; gap: 8px;">
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Source</label>
+                <select id="dsSourceSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="all">All Repositories</option>
+                  <option value="huggingface">Hugging Face</option>
+                  <option value="openml">OpenML</option>
+                  <option value="zenodo">Zenodo</option>
+                  <option value="paperswithcode">Papers with Code</option>
+                  <option value="kaggle">Kaggle (Simulated)</option>
+                  <option value="uci">UCI ML (Simulated)</option>
+                  <option value="ieeedataport">IEEE DataPort (Simulated)</option>
+                </select>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Domain</label>
+                <select id="dsDomainSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="">All Domains</option>
+                  <option value="Healthcare">Healthcare</option>
+                  <option value="Computer Vision">Computer Vision</option>
+                  <option value="NLP">NLP</option>
+                  <option value="Audio">Audio</option>
+                  <option value="Robotics">Robotics</option>
+                  <option value="Finance">Finance</option>
+                  <option value="Cybersecurity">Cybersecurity</option>
+                  <option value="Remote Sensing">Remote Sensing</option>
+                  <option value="Education">Education</option>
+                  <option value="Others">Others</option>
+                </select>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Task</label>
+                <select id="dsTaskSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="">All Tasks</option>
+                  <option value="Classification">Classification</option>
+                  <option value="Regression">Regression</option>
+                  <option value="Segmentation">Segmentation</option>
+                  <option value="Object Detection">Object Detection</option>
+                  <option value="Question Answering">Question Answering</option>
+                  <option value="Machine Translation">Machine Translation</option>
+                  <option value="Time Series">Time Series</option>
+                  <option value="Recommendation">Recommendation</option>
+                  <option value="Forecasting">Forecasting</option>
+                  <option value="Speech Recognition">Speech Recognition</option>
+                  <option value="Emotion Recognition">Emotion Recognition</option>
+                  <option value="Anomaly Detection">Anomaly Detection</option>
+                </select>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Modality</label>
+                <select id="dsModalitySelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="">All Modalities</option>
+                  <option value="Tabular">Tabular</option>
+                  <option value="Image">Image</option>
+                  <option value="Text">Text</option>
+                  <option value="Audio">Audio</option>
+                  <option value="Video">Video</option>
+                  <option value="EEG">EEG</option>
+                  <option value="ECG">ECG</option>
+                  <option value="Sensor Data">Sensor Data</option>
+                  <option value="Graph">Graph</option>
+                </select>
+              </div>
+              <div class="lit-filter-grid-row" style="display: flex; gap: 6px;">
+                <div class="lit-filter-group" style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Dataset Size</label>
+                  <select id="dsSizeSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                    <option value="">All Sizes</option>
+                    <option value="Small">Small</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Large">Large</option>
+                  </select>
+                </div>
+                <div class="lit-filter-group" style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">License Keyword</label>
+                  <input type="text" id="dsLicenseInput" placeholder="e.g. MIT, CC" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; outline: none;" />
+                </div>
+              </div>
+              <div class="lit-filter-group" style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">Sort By</label>
+                <select id="dsSortSelect" style="padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); font-size: 11px; font-family: inherit; cursor: pointer; outline: none;">
+                  <option value="relevance">Relevance</option>
+                  <option value="downloads">Most Downloaded</option>
+                  <option value="popularity">Most Popular / Likes</option>
+                  <option value="newest">Newest First</option>
+                  <option value="largest">Largest Dataset</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="dsResultsSection" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+          <!-- Loader Skeletons -->
+          <div id="dsSkeletonLoader" style="display: none; flex-direction: column; gap: 8px;">
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 75%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 90%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 8px;"></div>
+              <div class="lit-skeleton-line" style="width: 40%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 4px;"></div>
+            </div>
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 80%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 85%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 8px;"></div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="dsEmptyState" class="lit-empty-state" style="display: none; text-align: center; padding: 30px 10px; color: var(--text-muted);">
+            <p style="font-size: 13px; font-weight: 600; margin: 0 0 4px 0; color: var(--text);">No datasets found</p>
+            <span style="font-size: 11px;">Try adjusting your query or filters.</span>
+          </div>
+
+          <!-- Results Scroll Container -->
+          <div id="dsResultsContainer" class="lit-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px;"></div>
+
+          <!-- Pagination -->
+          <div id="dsPagination" class="lit-pagination" style="display: none; align-items: center; justify-content: space-between; padding: 10px 0 2px 0; border-top: 1px solid var(--border); margin-top: 8px; flex-shrink: 0;">
+            <button type="button" id="dsPrevPageBtn" style="padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; cursor: pointer; font-weight: 600;" disabled>Previous</button>
+            <span id="dsPageNum" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">Page 1</span>
+            <button type="button" id="dsNextPageBtn" style="padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; cursor: pointer; font-weight: 600;">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Profile Dropdown Menu -->
+    <div id="userDropdownMenu" class="user-dropdown-menu" style="display: none;">
+      <div class="user-info">
+        <div class="user-avatar-large">
+          <img id="dropdownUserAvatar" src="" alt="avatar" />
+        </div>
+        <div class="user-text">
+          <span id="dropdownUserName" class="user-name">User Name</span>
+          <span id="dropdownUserEmail" class="user-email">user@example.com</span>
+        </div>
+      </div>
+      <div class="dropdown-divider"></div>
+      <button type="button" class="dropdown-item logout-btn" id="logoutBtn">
+        <span class="item-icon">🚪</span>
+        <div class="item-text">
+          <span class="item-title" style="color: #ef4444; font-weight: 600;">Sign Out</span>
+        </div>
+      </button>
+    </div>
+
+    <!-- Full-Screen Auth Overlay Screen -->
+    <div id="authScreen" class="auth-screen" style="display: none;">
+      <div class="auth-bg-glow"></div>
+      <div class="auth-card">
+        <div class="auth-logo-container">
+          <img src="logo.png" alt="logo" class="auth-logo" />
+        </div>
+        <h1 class="auth-title">Research OS</h1>
+        <p class="auth-subtitle">AI-Powered Scientific Assistant</p>
+        <p class="auth-desc">Sign in to securely access advanced proxy models, literature searches, and dataset analysis tools.</p>
+        <button type="button" id="googleSignInBtn" class="google-signin-btn">
+          <svg class="google-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.08-.24-.13-.5-.13-.72z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+          </svg>
+          <span>Sign in with Google</span>
+        </button>
       </div>
     </div>
 

@@ -3,60 +3,32 @@
 }
 
 :root {
-  --bg: #f7f8fa;
-  --surface: #ffffff;
-  --border: #e5e7eb;
-  --text: #16181d;
-  --text-muted: #6b7280;
-  --primary: #2563eb;
-  --primary-dark: #1d4ed8;
-  --success-bg: #ecfdf3;
-  --success-text: #067647;
-  --success-border: #abefc6;
-  --error-bg: #fdecec;
-  --error-text: #b42318;
-  --error-border: #f6c9c4;
-  --unknown-bg: #f1f2f5;
-  --unknown-text: #6b7280;
-  --unknown-border: #e0e2e7;
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-md: 0 6px 20px rgba(16, 24, 40, 0.08);
-  --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1115;
-    --surface: #1a1d24;
-    --border: #2b2f38;
-    --text: #edeef0;
-    --text-muted: #9aa0ac;
-    --primary: #3b82f6;
-    --primary-dark: #2563eb;
-    --success-bg: #10301f;
-    --success-text: #5fd995;
-    --success-border: #1f4d33;
-    --error-bg: #3a1f1f;
-    --error-text: #ff9b8f;
-    --error-border: #5c2c28;
-    --unknown-bg: #242731;
-    --unknown-text: #9aa0ac;
-    --unknown-border: #333744;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.35);
-    --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #818cf8 100%);
-  }
-}
-
-* {
-  box-sizing: border-box;
+  --bg: #090e18;
+  --surface: #121926;
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f3f4f6;
+  --text-muted: #9ca3af;
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --success-bg: rgba(16, 185, 129, 0.15);
+  --success-text: #34d399;
+  --success-border: rgba(16, 185, 129, 0.3);
+  --error-bg: rgba(239, 68, 68, 0.15);
+  --error-text: #fca5a5;
+  --error-border: rgba(239, 68, 68, 0.3);
+  --unknown-bg: #1f2937;
+  --unknown-text: #9ca3af;
+  --unknown-border: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.5);
+  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
 }
 
 body {
   margin: 0;
   padding: 32px 16px;
   background: var(--bg);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
   font-size: 14px;
   color: var(--text);
 }
@@ -91,11 +63,7 @@ body {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 10px;
-  background: var(--accent-gradient);
-  color: #fff;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .page-header .logo svg {
@@ -170,7 +138,7 @@ input:focus,
 select:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 select {

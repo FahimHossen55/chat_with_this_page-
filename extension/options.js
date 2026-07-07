@@ -1,6 +1,8 @@
 const backendUrlEl = document.getElementById("backendUrl");
 const providerEl = document.getElementById("provider");
 const modelEl = document.getElementById("model");
+const ieeeApiKeyEl = document.getElementById("ieeeApiKey");
+const serpApiKeyEl = document.getElementById("serpApiKey");
 const statusEl = document.getElementById("status");
 const testBtn = document.getElementById("testBtn");
 const connectionStatusEl = document.getElementById("connectionStatus");
@@ -11,14 +13,18 @@ function setConnectionStatus(state, label) {
 }
 
 async function load() {
-  const { backendUrl, provider, model } = await chrome.storage.sync.get([
+  const { backendUrl, provider, model, ieeeApiKey, serpApiKey } = await chrome.storage.sync.get([
     "backendUrl",
     "provider",
     "model",
+    "ieeeApiKey",
+    "serpApiKey",
   ]);
   backendUrlEl.value = backendUrl || "http://localhost:8000";
   providerEl.value = provider || "groq";
   modelEl.value = model || "llama-3.1-8b-instant";
+  ieeeApiKeyEl.value = ieeeApiKey || "";
+  serpApiKeyEl.value = serpApiKey || "";
 }
 
 async function testConnection() {
@@ -54,6 +60,8 @@ saveBtn.addEventListener("click", async () => {
     backendUrl: backendUrlEl.value.trim(),
     provider: providerEl.value,
     model: modelEl.value.trim(),
+    ieeeApiKey: ieeeApiKeyEl.value.trim(),
+    serpApiKey: serpApiKeyEl.value.trim(),
   });
 
   saveBtn.classList.add("success");

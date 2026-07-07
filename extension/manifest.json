@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Chat With This Page",
+  "name": "Research OS",
   "version": "1.0.0",
   "description": "Chat with the content of your currently open webpage using an LLM.",
-  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "sidePanel", "identity"],
   "host_permissions": ["http://*/*", "https://*/*", "file:///*"],
   "action": {
     "default_popup": "popup.html",

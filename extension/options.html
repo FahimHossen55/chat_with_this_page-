@@ -2,22 +2,20 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Chat With This Page — Settings</title>
+    <title>Research OS — Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <div class="page">
       <header class="page-header">
-        <span class="logo">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M4 5.5C4 4.67 4.67 4 5.5 4h13c.83 0 1.5.67 1.5 1.5v10c0 .83-.67 1.5-1.5 1.5H9l-4 3.5v-3.5H5.5C4.67 17 4 16.33 4 15.5v-10Z"
-              fill="currentColor"
-            />
-          </svg>
+        <span class="logo" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">
+          <img src="logo.png" alt="logo" style="width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.4));" />
         </span>
         <div>
-          <h1>Chat With This Page</h1>
+          <h1>Research OS</h1>
           <p class="subtitle">Settings</p>
         </div>
       </header>
@@ -56,6 +54,19 @@
           <option value="qwen/qwen3-32b">Qwen3 32B — strong reasoning</option>
         </select>
         <p class="hint">Larger models are slower and pricier; Llama 3.1 8B is the default.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Academic &amp; Datasets API Keys</h2>
+        </div>
+
+        <label for="ieeeApiKey">IEEE Xplore API Key</label>
+        <input id="ieeeApiKey" type="password" placeholder="Enter IEEE Xplore Developer Key" style="width: 100%; box-sizing: border-box; padding: 6px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text);" />
+
+        <label for="serpApiKey">SerpAPI Key (Google Scholar)</label>
+        <input id="serpApiKey" type="password" placeholder="Enter SerpAPI Key" style="width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text);" />
+        <p class="hint">These keys will be saved locally on your device and sent to your FastAPI proxy when executing searches.</p>
       </section>
 
       <div class="actions">
