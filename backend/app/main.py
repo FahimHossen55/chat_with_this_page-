@@ -78,12 +78,22 @@ async def chat(req: ChatRequest):
                 status = str(upstream.status_code)
                 if upstream.status_code >= 400:
                     body = await upstream.aread()
-                    raise HTTPException(
-                        status_code=upstream.status_code,
-                        detail=body.decode(errors="replace"),
-                    )
+                    err_msg = body.decode(errors="replace")
+                    try:
+                        parsed_err = json.loads(err_msg)
+                        if "error" in parsed_err and "message" in parsed_err["error"]:
+                            err_msg = parsed_err["error"]["message"]
+                        elif "detail" in parsed_err:
+                            err_msg = parsed_err["detail"]
+                    except:
+                        pass
+                    yield f"data: {json.dumps({'error': f'LLM API Error ({upstream.status_code}): {err_msg}'})}\n\n"
+                    return
                 async for chunk in upstream.aiter_bytes():
                     yield chunk
+        except Exception as e:
+            err_msg = str(e)
+            yield f"data: {json.dumps({'error': f'Connection error: {err_msg}'})}\n\n"
         finally:
             latency_ms = round((time.monotonic() - start) * 1000)
             logger.info(

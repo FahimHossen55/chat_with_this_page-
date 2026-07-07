@@ -133,8 +133,15 @@ async function streamChat(port, tabId, question, extraContext) {
   });
 
   if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Backend error ${response.status}: ${detail || response.statusText}`);
+    let errMsg = `Backend error ${response.status}`;
+    try {
+      const errJson = await response.json();
+      errMsg = errJson.detail || errJson.error || JSON.stringify(errJson);
+    } catch {
+      const detail = await response.text().catch(() => "");
+      if (detail) errMsg = detail;
+    }
+    throw new Error(errMsg);
   }
 
   const reader = response.body.getReader();
@@ -158,6 +165,10 @@ async function streamChat(port, tabId, question, extraContext) {
         if (data === "[DONE]") continue;
         try {
           const parsed = JSON.parse(data);
+          if (parsed.error) {
+            port.postMessage({ type: "ERROR", message: parsed.error });
+            return;
+          }
           const delta = parsed.choices?.[0]?.delta?.content || "";
           if (delta) {
             fullAnswer += delta;
@@ -203,8 +214,15 @@ async function streamAssistant(port, systemPrompt, promptText) {
   });
 
   if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Backend error ${response.status}: ${detail || response.statusText}`);
+    let errMsg = `Backend error ${response.status}`;
+    try {
+      const errJson = await response.json();
+      errMsg = errJson.detail || errJson.error || JSON.stringify(errJson);
+    } catch {
+      const detail = await response.text().catch(() => "");
+      if (detail) errMsg = detail;
+    }
+    throw new Error(errMsg);
   }
 
   const reader = response.body.getReader();
@@ -226,6 +244,10 @@ async function streamAssistant(port, systemPrompt, promptText) {
       if (data === "[DONE]") continue;
       try {
         const parsed = JSON.parse(data);
+        if (parsed.error) {
+          port.postMessage({ type: "ERROR", message: parsed.error });
+          return;
+        }
         const delta = parsed.choices?.[0]?.delta?.content || "";
         if (delta) {
           port.postMessage({ type: "CHUNK", delta });
