@@ -21,15 +21,33 @@
   rootContainer.style.height = "0";
   rootContainer.style.overflow = "visible";
   rootContainer.style.zIndex = "2147483647";
-  document.body.appendChild(rootContainer);
+  
+  const targetContainer = document.body || document.documentElement;
+  if (targetContainer) {
+    targetContainer.appendChild(rootContainer);
+  }
 
   const shadow = rootContainer.attachShadow({ mode: "open" });
 
-  // Inject assistant.css stylesheet into Shadow DOM
-  const stylesheet = document.createElement("link");
-  stylesheet.rel = "stylesheet";
-  stylesheet.href = chrome.runtime.getURL("assistant.css");
-  shadow.appendChild(stylesheet);
+  // Inject assistant.css stylesheet into Shadow DOM via fetch to bypass host CSP rules
+  const cssUrl = chrome.runtime.getURL("assistant.css");
+  fetch(cssUrl)
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return res.text();
+    })
+    .then(css => {
+      const style = document.createElement("style");
+      style.textContent = css;
+      shadow.appendChild(style);
+    })
+    .catch(err => {
+      console.warn("Failed to load assistant styles via fetch, falling back to link element:", err);
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = cssUrl;
+      shadow.appendChild(link);
+    });
 
   // UI state holders
   let toolbarEl = null;
@@ -178,6 +196,7 @@
 
     // Keep active selection references
     activeSelectionText = text;
+    if (sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     activeSelectionContext = getSurroundingContext(range);
     
@@ -585,6 +604,10 @@
 
       if (text) {
         activeSelectionText = text;
+        if (sel.rangeCount === 0) {
+          sendResponse({ ok: false, error: "No text selection range found." });
+          return;
+        }
         const range = sel.getRangeAt(0);
         activeSelectionContext = getSurroundingContext(range);
         
