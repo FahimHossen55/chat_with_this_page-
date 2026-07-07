@@ -3,4 +3,7 @@ uvicorn[standard]==0.34.0
 httpx==0.28.1
 python-dotenv==1.0.1
 watchtower==3.3.1
-httpx
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+pyjwt==2.8.0
+cryptography==42.0.2
