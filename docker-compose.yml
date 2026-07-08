@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:changeme@db:5432/chatwithpage
     ports:
       - "8000:8000"
     depends_on:

@@ -582,12 +582,67 @@
         </div>
       </div>
       <div class="dropdown-divider"></div>
+      <button type="button" class="dropdown-item" id="dropdownHistory">
+        <span class="item-icon">⏳</span>
+        <div class="item-text">
+          <span class="item-title">Chat History</span>
+        </div>
+      </button>
+      <div class="dropdown-divider"></div>
       <button type="button" class="dropdown-item logout-btn" id="logoutBtn">
         <span class="item-icon">🚪</span>
         <div class="item-text">
           <span class="item-title" style="color: #ef4444; font-weight: 600;">Sign Out</span>
         </div>
       </button>
+    </div>
+
+    <!-- Chat History Sliding Drawer Panel -->
+    <div id="historyPanel" class="github-menu" style="display: none;">
+      <div class="github-menu-header">
+        <div class="github-menu-title" style="display: flex; align-items: center; gap: 8px;">
+          <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" xmlns="http://www.w3.org/2000/svg" style="width: 14px; height: 14px; color: var(--primary);">
+            <path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Chat History</span>
+        </div>
+        <button id="closeHistoryPanelBtn" class="close-btn" type="button" title="Close menu">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="github-menu-content" style="display: flex; flex-direction: column; gap: 12px; height: 100%; overflow-y: auto;">
+        
+        <!-- Search filter bar -->
+        <div style="display: flex; gap: 6px; width: 100%;">
+          <input type="text" id="historySearchInput" placeholder="Filter history by title or URL..." style="flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); color: var(--text); font-family: inherit; font-size: 11.5px; height: 30px; box-sizing: border-box;" />
+        </div>
+
+        <!-- History items list container -->
+        <div id="historyResultsSection" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+          <!-- Loader Skeletons -->
+          <div id="historySkeletonLoader" style="display: none; flex-direction: column; gap: 8px;">
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 80%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 50%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 6px;"></div>
+            </div>
+            <div class="lit-skeleton-card" style="padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);">
+              <div class="lit-skeleton-line" style="width: 70%; height: 12px; background: var(--border); border-radius: 2px;"></div>
+              <div class="lit-skeleton-line" style="width: 40%; height: 8px; background: var(--border); border-radius: 2px; margin-top: 6px;"></div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div id="historyEmptyState" class="lit-empty-state" style="display: none; text-align: center; padding: 40px 10px; color: var(--text-muted);">
+            <p style="font-size: 13px; font-weight: 600; margin: 0 0 4px 0; color: var(--text);">No history found</p>
+            <span style="font-size: 11px;">You haven't saved any chats yet.</span>
+          </div>
+
+          <!-- Scrollable history list -->
+          <div id="historyListContainer" class="lit-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Full-Screen Auth Overlay Screen -->

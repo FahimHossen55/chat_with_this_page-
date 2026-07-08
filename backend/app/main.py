@@ -6,17 +6,19 @@ import time
 
 import httpx
 from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import urllib.parse
+from datetime import datetime
 
 from app.providers import get_provider
 from app import literature
 from app import datasets
-from app.database import get_db, init_db, User
+from app.database import get_db, init_db, User, ChatHistory
 from app.auth import (
     get_current_user,
     create_access_token,
@@ -25,8 +27,6 @@ from app.auth import (
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
 )
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("chatwithpage")
@@ -54,6 +54,15 @@ async def auth_login(redirect_uri: str):
     
     # Generate state token containing the redirect_uri
     state = generate_state_token(redirect_uri)
+    
+    # If using placeholder credentials, bypass Google redirect and login immediately as a test user
+    if GOOGLE_CLIENT_ID == "dummy_client_id.apps.googleusercontent.com":
+        mock_callback_url = (
+            "http://localhost:8000/auth/callback"
+            f"?code=mock_code_developer"
+            f"&state={urllib.parse.quote(state)}"
+        )
+        return RedirectResponse(mock_callback_url)
     
     google_oauth_url = (
         "https://accounts.google.com/o/oauth2/v2/auth"
@@ -368,6 +377,97 @@ async def datasets_search(
         )
         return {"results": results}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ChatHistoryRequest(BaseModel):
+    url: str
+    title: str | None = None
+    messages: list[ChatMessage]
+
+
+@app.post("/chat/history")
+async def save_chat_history(
+    req: ChatHistoryRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Query existing record
+        history = db.query(ChatHistory).filter(
+            ChatHistory.user_id == current_user.id,
+            ChatHistory.url == req.url
+        ).first()
+
+        serialized_messages = [m.model_dump() for m in req.messages]
+
+        if history:
+            history.title = req.title or history.title
+            history.messages = serialized_messages
+            history.updated_at = datetime.utcnow()
+        else:
+            history = ChatHistory(
+                user_id=current_user.id,
+                url=req.url,
+                title=req.title,
+                messages=serialized_messages
+            )
+            db.add(history)
+            
+        db.commit()
+        return {"status": "ok", "message": "History saved successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/history")
+async def get_chat_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        histories = db.query(ChatHistory).filter(
+            ChatHistory.user_id == current_user.id
+        ).order_by(ChatHistory.updated_at.desc()).all()
+        
+        return {
+            "history": [
+                {
+                    "url": h.url,
+                    "title": h.title,
+                    "messages": h.messages,
+                    "updated_at": h.updated_at.isoformat()
+                }
+                for h in histories
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/chat/history")
+async def delete_chat_history(
+    url: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        history = db.query(ChatHistory).filter(
+            ChatHistory.user_id == current_user.id,
+            ChatHistory.url == url
+        ).first()
+        
+        if not history:
+            raise HTTPException(status_code=404, detail="Chat history not found")
+            
+        db.delete(history)
+        db.commit()
+        return {"status": "ok", "message": "History deleted successfully"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 

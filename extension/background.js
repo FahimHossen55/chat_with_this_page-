@@ -61,6 +61,36 @@ async function appendPageHistory(url, question, answer) {
   const trimmed = history.slice(-MAX_HISTORY_TURNS * 2);
   await chrome.storage.local.set({ [key]: trimmed });
   await touchHistoryIndex(normalized);
+
+  // Sync to PostgreSQL backend if authenticated
+  const { authToken } = await chrome.storage.local.get("authToken");
+  if (authToken) {
+    const backendUrl = await getBackendUrl();
+    let title = normalized;
+    try {
+      // Find tab matching this URL to retrieve its title
+      const tabs = await chrome.tabs.query({});
+      const match = tabs.find(t => t.url && normalizeUrl(t.url) === normalized);
+      if (match && match.title) {
+        title = match.title;
+      }
+      
+      await fetch(`${backendUrl}/chat/history`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          url: url,
+          title: title,
+          messages: trimmed
+        })
+      });
+    } catch (err) {
+      console.error("Failed to sync chat history to server:", err);
+    }
+  }
 }
 
 // Only ordinary http(s) pages can be scripted — chrome://, other extensions'
@@ -126,9 +156,15 @@ async function streamChat(port, tabId, question, extraContext) {
     { role: "user", content: question },
   ];
 
+  const { authToken } = await chrome.storage.local.get("authToken");
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
+
   const response = await fetch(`${backendUrl}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: headers,
     body: JSON.stringify({ provider: "groq", model, messages, stream: true }),
   });
 
@@ -207,9 +243,15 @@ async function streamAssistant(port, systemPrompt, promptText) {
     { role: "user", content: promptText },
   ];
 
+  const { authToken } = await chrome.storage.local.get("authToken");
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  }
+
   const response = await fetch(`${backendUrl}/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: headers,
     body: JSON.stringify({ provider: "groq", model, messages, stream: true }),
   });
 

@@ -1,3 +1,183 @@
+// ==================== AUTH SYSTEM START ====================
+let authToken = null;
+let userProfile = null;
+
+// Auth DOM Elements
+const authScreenEl = document.getElementById("authScreen");
+const googleSignInBtnEl = document.getElementById("googleSignInBtn");
+const userProfileBtnEl = document.getElementById("userProfileBtn");
+const userAvatarEl = document.getElementById("userAvatar");
+const userDropdownMenuEl = document.getElementById("userDropdownMenu");
+const dropdownUserAvatarEl = document.getElementById("dropdownUserAvatar");
+const dropdownUserNameEl = document.getElementById("dropdownUserName");
+const dropdownUserEmailEl = document.getElementById("dropdownUserEmail");
+const logoutBtnEl = document.getElementById("logoutBtn");
+
+// Helper to get backend URL dynamically
+async function getBackendUrl() {
+  const { backendUrl } = await chrome.storage.sync.get("backendUrl");
+  return backendUrl || "http://localhost:8000";
+}
+
+// Intercept window.fetch to automatically inject JWT Bearer token
+const originalFetch = window.fetch;
+window.fetch = async function (resource, options = {}) {
+  const urlStr = typeof resource === 'string' ? resource : (resource instanceof URL ? resource.toString() : resource.url);
+  const resolvedBackend = await getBackendUrl();
+
+  if (urlStr.startsWith(resolvedBackend)) {
+    options.headers = options.headers || {};
+    if (authToken) {
+      if (options.headers instanceof Headers) {
+        options.headers.set("Authorization", `Bearer ${authToken}`);
+      } else if (Array.isArray(options.headers)) {
+        const hasAuth = options.headers.some(h => h[0].toLowerCase() === 'authorization');
+        if (!hasAuth) {
+          options.headers.push(["Authorization", `Bearer ${authToken}`]);
+        }
+      } else {
+        if (!options.headers["Authorization"] && !options.headers["authorization"]) {
+          options.headers["Authorization"] = `Bearer ${authToken}`;
+        }
+      }
+    }
+  }
+
+  const response = await originalFetch(resource, options);
+  if (response.status === 401 && urlStr.startsWith(resolvedBackend)) {
+    console.warn("Unauthorized request (401 from backend). Resetting session...");
+    handleSignOut();
+  }
+  return response;
+};
+
+// UI State Toggles
+function showAuthenticatedUI() {
+  if (authScreenEl) authScreenEl.style.display = "none";
+  if (userProfileBtnEl) userProfileBtnEl.style.display = "flex";
+  if (userAvatarEl && userProfile) userAvatarEl.src = userProfile.picture || "logo.png";
+
+  if (dropdownUserAvatarEl && userProfile) dropdownUserAvatarEl.src = userProfile.picture || "logo.png";
+  if (dropdownUserNameEl && userProfile) dropdownUserNameEl.textContent = userProfile.name || "Research OS User";
+  if (dropdownUserEmailEl && userProfile) dropdownUserEmailEl.textContent = userProfile.email || "";
+}
+
+function showUnauthenticatedUI() {
+  if (authScreenEl) authScreenEl.style.display = "flex";
+  if (userProfileBtnEl) userProfileBtnEl.style.display = "none";
+  if (userDropdownMenuEl) userDropdownMenuEl.style.display = "none";
+  authToken = null;
+  userProfile = null;
+}
+
+// Google OAuth launch
+async function handleSignIn() {
+  try {
+    if (googleSignInBtnEl) {
+      googleSignInBtnEl.disabled = true;
+      googleSignInBtnEl.style.opacity = "0.7";
+      const textSpan = googleSignInBtnEl.querySelector("span");
+      if (textSpan) textSpan.textContent = "Connecting...";
+    }
+
+    const resolvedBackend = await getBackendUrl();
+    const redirectUri = chrome.identity.getRedirectURL();
+    const loginUrl = `${resolvedBackend}/auth/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+    chrome.identity.launchWebAuthFlow(
+      { url: loginUrl, interactive: true },
+      async (redirectUrl) => {
+        if (googleSignInBtnEl) {
+          googleSignInBtnEl.disabled = false;
+          googleSignInBtnEl.style.opacity = "1";
+          const textSpan = googleSignInBtnEl.querySelector("span");
+          if (textSpan) textSpan.textContent = "Sign in with Google";
+        }
+
+        if (chrome.runtime.lastError || !redirectUrl) {
+          console.error("Sign in failed:", chrome.runtime.lastError?.message);
+          return;
+        }
+
+        const urlParams = new URLSearchParams(new URL(redirectUrl).search);
+        const token = urlParams.get("token");
+        const email = urlParams.get("email");
+        const name = urlParams.get("name");
+        const picture = urlParams.get("picture");
+
+        if (token && email) {
+          authToken = token;
+          userProfile = { email, name, picture };
+          await chrome.storage.local.set({ authToken, userProfile });
+          showAuthenticatedUI();
+
+          // Refresh literature trending page if function is available
+          if (typeof loadTrendingPapers === "function") {
+            loadTrendingPapers().catch(console.error);
+          }
+        } else {
+          console.error("Authentication payload missing required fields:", redirectUrl);
+        }
+      }
+    );
+  } catch (err) {
+    console.error("OAuth execution error:", err);
+    if (googleSignInBtnEl) {
+      googleSignInBtnEl.disabled = false;
+      googleSignInBtnEl.style.opacity = "1";
+      const textSpan = googleSignInBtnEl.querySelector("span");
+      if (textSpan) textSpan.textContent = "Sign in with Google";
+    }
+  }
+}
+
+async function handleSignOut() {
+  await chrome.storage.local.remove(["authToken", "userProfile"]);
+  showUnauthenticatedUI();
+}
+
+// Setup Listeners
+if (googleSignInBtnEl) {
+  googleSignInBtnEl.addEventListener("click", handleSignIn);
+}
+
+if (logoutBtnEl) {
+  logoutBtnEl.addEventListener("click", handleSignOut);
+}
+
+if (userProfileBtnEl) {
+  userProfileBtnEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (userDropdownMenuEl) {
+      if (userDropdownMenuEl.style.display === "none" || !userDropdownMenuEl.style.display) {
+        userDropdownMenuEl.style.display = "flex";
+      } else {
+        userDropdownMenuEl.style.display = "none";
+      }
+    }
+  });
+}
+
+document.addEventListener("click", (e) => {
+  if (userDropdownMenuEl && userDropdownMenuEl.style.display === "flex") {
+    if (!userDropdownMenuEl.contains(e.target) && !userProfileBtnEl.contains(e.target)) {
+      userDropdownMenuEl.style.display = "none";
+    }
+  }
+});
+
+// Run auth check immediately
+chrome.storage.local.get(["authToken", "userProfile"]).then((data) => {
+  if (data.authToken && data.userProfile) {
+    authToken = data.authToken;
+    userProfile = data.userProfile;
+    showAuthenticatedUI();
+  } else {
+    showUnauthenticatedUI();
+  }
+});
+// ==================== AUTH SYSTEM END ====================
+
 const messagesEl = document.getElementById("messages");
 const emptyStateEl = document.getElementById("emptyState");
 const formEl = document.getElementById("askForm");
@@ -1213,7 +1393,25 @@ document.getElementById("clearBtn").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   btn.classList.add("spin");
   setTimeout(() => btn.classList.remove("spin"), 600);
+  
   await chrome.storage.local.remove(HISTORY_PREFIX + normalizeUrl(activeTabUrl));
+
+  // Sync deletion to server if authenticated
+  const { authToken: token } = await chrome.storage.local.get("authToken");
+  if (token) {
+    const backendUrl = await getBackendUrl();
+    try {
+      await fetch(`${backendUrl}/chat/history?url=${encodeURIComponent(activeTabUrl)}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+    } catch (err) {
+      console.error("Failed to sync clear history deletion to server:", err);
+    }
+  }
+
   messagesEl.querySelectorAll(".msg-row").forEach((row) => row.remove());
   updateEmptyState();
   updateScrollBottomBtn();
@@ -2064,6 +2262,247 @@ function renderDsRecentSearchChips() {
       dsSuggestionsEl.style.display = "none";
     }
   });
+
+  // ─── Chat History Panel Logic ──────────────────────────────────────────────────
+  const dropdownHistoryEl = document.getElementById("dropdownHistory");
+  const historyPanelEl = document.getElementById("historyPanel");
+  const closeHistoryBtnEl = document.getElementById("closeHistoryPanelBtn");
+  const historySearchInputEl = document.getElementById("historySearchInput");
+  const historySkeletonLoaderEl = document.getElementById("historySkeletonLoader");
+  const historyEmptyStateEl = document.getElementById("historyEmptyState");
+  const historyListContainerEl = document.getElementById("historyListContainer");
+
+  let allHistoryItems = []; // caches retrieved items to support client-side filtering
+
+  if (dropdownHistoryEl && historyPanelEl) {
+    dropdownHistoryEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (userDropdownMenuEl) userDropdownMenuEl.style.display = "none";
+      
+      // Close other panels
+      const litPanel = document.getElementById("literatureSearchPanel");
+      const dsPanel = document.getElementById("datasetSearchPanel");
+      const ghPanel = document.getElementById("githubPanel");
+      if (litPanel) litPanel.style.display = "none";
+      if (dsPanel) dsPanel.style.display = "none";
+      if (ghPanel) ghPanel.style.display = "none";
+
+      historyPanelEl.style.display = "flex";
+      loadServerHistory();
+    });
+  }
+
+  if (closeHistoryBtnEl && historyPanelEl) {
+    closeHistoryBtnEl.addEventListener("click", () => {
+      historyPanelEl.style.display = "none";
+    });
+  }
+
+  if (historySearchInputEl) {
+    historySearchInputEl.addEventListener("input", () => {
+      filterAndRenderHistory();
+    });
+  }
+
+  async function loadServerHistory() {
+    if (!historyListContainerEl) return;
+    
+    // Reset view
+    historyListContainerEl.innerHTML = "";
+    if (historyEmptyStateEl) historyEmptyStateEl.style.display = "none";
+    if (historySkeletonLoaderEl) historySkeletonLoaderEl.style.display = "flex";
+    if (historySearchInputEl) historySearchInputEl.value = "";
+
+    try {
+      const backendUrl = await getBackendUrl();
+      const headers = {};
+      const { authToken: token } = await chrome.storage.local.get("authToken");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${backendUrl}/chat/history`, {
+        method: "GET",
+        headers: headers
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      allHistoryItems = data.history || [];
+      filterAndRenderHistory();
+    } catch (err) {
+      console.error("Failed to load chat history:", err);
+      if (historyEmptyStateEl) {
+        historyEmptyStateEl.querySelector("p").textContent = "Failed to load history";
+        historyEmptyStateEl.querySelector("span").textContent = err.message || "Please check server status.";
+        historyEmptyStateEl.style.display = "block";
+      }
+    } finally {
+      if (historySkeletonLoaderEl) historySkeletonLoaderEl.style.display = "none";
+    }
+  }
+
+  function filterAndRenderHistory() {
+    if (!historyListContainerEl) return;
+    historyListContainerEl.innerHTML = "";
+
+    const query = (historySearchInputEl?.value || "").toLowerCase().trim();
+    const filtered = allHistoryItems.filter(item => {
+      return (item.title || "").toLowerCase().includes(query) ||
+             (item.url || "").toLowerCase().includes(query);
+    });
+
+    if (filtered.length === 0) {
+      if (historyEmptyStateEl) {
+        historyEmptyStateEl.querySelector("p").textContent = "No history found";
+        historyEmptyStateEl.querySelector("span").textContent = query ? "Try adjusting your filter search query." : "You haven't saved any chats yet.";
+        historyEmptyStateEl.style.display = "block";
+      }
+      return;
+    }
+
+    if (historyEmptyStateEl) historyEmptyStateEl.style.display = "none";
+
+    for (const item of filtered) {
+      const card = document.createElement("div");
+      card.className = "history-card";
+      
+      const titleText = item.title || item.url;
+      const turnCount = item.messages ? Math.floor(item.messages.length / 2) : 0;
+      const relativeTime = formatRelativeTime(new Date(item.updated_at));
+
+      card.innerHTML = `
+        <div class="history-card-title" title="${escapeHTML(titleText)}">${escapeHTML(titleText)}</div>
+        <div class="history-card-url" title="${escapeHTML(item.url)}">${escapeHTML(item.url)}</div>
+        <div class="history-card-meta">
+          <span class="history-card-badge">${turnCount} turn${turnCount === 1 ? "" : "s"}</span>
+          <span>•</span>
+          <span>${relativeTime}</span>
+        </div>
+        <button type="button" class="history-delete-btn" title="Delete conversation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+          </svg>
+        </button>
+      `;
+
+      // Click card to restore chat
+      card.addEventListener("click", async (e) => {
+        if (e.target.closest(".history-delete-btn")) return;
+        
+        historyPanelEl.style.display = "none";
+        await restoreConversation(item.url, item.messages);
+      });
+
+      // Click delete button
+      const deleteBtn = card.querySelector(".history-delete-btn");
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (confirm(`Delete history for "${titleText}"?`)) {
+            card.style.opacity = "0.5";
+            card.style.pointerEvents = "none";
+            await deleteServerHistory(item.url);
+          }
+        });
+      }
+
+      historyListContainerEl.appendChild(card);
+    }
+  }
+
+  async function restoreConversation(url, messages) {
+    const HISTORY_PREFIX = "history_";
+    const HISTORY_INDEX_KEY = "historyIndex";
+    const MAX_STORED_PAGES = 50;
+
+    const normalized = url.toLowerCase().trim().replace(/\/+$/, "");
+    const key = HISTORY_PREFIX + normalized;
+
+    // 1. Save turns to chrome.storage.local
+    await chrome.storage.local.set({ [key]: messages });
+
+    // 2. Add to historyIndex
+    const { [HISTORY_INDEX_KEY]: index = [] } = await chrome.storage.local.get(HISTORY_INDEX_KEY);
+    const next = [normalized, ...index.filter((u) => u !== normalized)];
+    const kept = next.slice(0, MAX_STORED_PAGES);
+    await chrome.storage.local.set({ [HISTORY_INDEX_KEY]: kept });
+
+    // 3. Re-run loadForTab if restored conversation matches the current active tab
+    const activeTab = await getActiveTab();
+    if (activeTab && activeTab.url && activeTab.url.toLowerCase().trim().replace(/\/+$/, "") === normalized) {
+      const messagesEl = document.getElementById("messages");
+      if (messagesEl) {
+        messagesEl.innerHTML = "";
+        if (typeof loadForTab === "function") {
+          loadForTab();
+        } else {
+          window.location.reload();
+        }
+      }
+    } else {
+      alert(`Conversation loaded! Revisit that page to continue chatting.`);
+    }
+  }
+
+  async function deleteServerHistory(url) {
+    const HISTORY_PREFIX = "history_";
+    const HISTORY_INDEX_KEY = "historyIndex";
+
+    try {
+      const backendUrl = await getBackendUrl();
+      const headers = {};
+      const { authToken: token } = await chrome.storage.local.get("authToken");
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${backendUrl}/chat/history?url=${encodeURIComponent(url)}`, {
+        method: "DELETE",
+        headers: headers
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Delete locally
+      const normalized = url.toLowerCase().trim().replace(/\/+$/, "");
+      const key = HISTORY_PREFIX + normalized;
+      await chrome.storage.local.remove(key);
+
+      const { [HISTORY_INDEX_KEY]: index = [] } = await chrome.storage.local.get(HISTORY_INDEX_KEY);
+      const updatedIndex = index.filter(u => u !== normalized);
+      await chrome.storage.local.set({ [HISTORY_INDEX_KEY]: updatedIndex });
+
+      // Refresh list
+      allHistoryItems = allHistoryItems.filter(item => item.url !== url);
+      filterAndRenderHistory();
+    } catch (err) {
+      console.error("Failed to delete history:", err);
+      alert(`Could not delete conversation: ${err.message}`);
+      loadServerHistory();
+    }
+  }
+
+  function formatRelativeTime(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  async function getActiveTab() {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tabs && tabs.length > 0 ? tabs[0] : null;
+  }
 })();
 
 
